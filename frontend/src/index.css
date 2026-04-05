@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Chivo:wght@400;500;600&display=swap');
+
+:root {
+  --bg: radial-gradient(circle at 20% 20%, #12264b, #0b1021 50%);
+  --panel: rgba(20, 27, 48, 0.85);
+  --panel-stroke: rgba(255, 255, 255, 0.08);
+  --input-bg: rgba(13, 24, 43, 0.7);
+  --input-stroke: rgba(255, 255, 255, 0.1);
+  --text: #dfe7f5;
+  --text-strong: #f7fbff;
+  --muted: #94a4c5;
+  --accent: #ffb703;
+  --accent-2: #8ecae6;
+
+  color: var(--text);
+  font-family: 'Space Grotesk', 'Chivo', sans-serif;
+  font-size: 17px;
+  line-height: 1.55;
+  letter-spacing: 0.2px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  background-attachment: fixed;
+}
+
+#root {
+  color: var(--text);
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(32px, 4vw, 44px);
+  letter-spacing: -0.8px;
+  color: var(--text-strong);
+}
+
+h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+p {
+  margin: 0;
+}
