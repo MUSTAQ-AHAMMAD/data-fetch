@@ -12,7 +12,8 @@ Full-stack app that pulls POS order data from the provided Odoo API and upserts 
 1. Create a virtualenv and install dependencies:
    ```bash
    python -m venv .venv
-   source .venv/bin/activate
+   source .venv/bin/activate   # Linux/macOS
+   .venv\Scripts\activate      # Windows PowerShell
    pip install -r backend/requirements.txt
    ```
 2. Copy `backend/.env.example` to `backend/.env` and fill in the required values (`ODOO_API_KEY` and `ORACLE_PASSWORD` are required):
@@ -23,6 +24,38 @@ Full-stack app that pulls POS order data from the provided Odoo API and upserts 
    ```bash
    uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
    ```
+
+### Oracle connectivity – Thin vs Thick mode
+
+The backend uses [python-oracledb](https://python-oracledb.readthedocs.io/) which has two operating modes:
+
+| Mode | Requirement | When to use |
+|------|-------------|-------------|
+| **Thin** (default) | Pure Python, nothing extra to install | Works for most user accounts; sometimes limited for SYS/SYSDBA on remote hosts |
+| **Thick** | Oracle Instant Client installed locally | Use when Thin mode fails, especially for `SYS`/`SYSDBA` remote connections |
+
+#### Setting up Thick mode on Windows (recommended when `oracle_connected: false`)
+
+1. Download **Oracle Instant Client 21c (64-bit)** from Oracle:  
+   <https://www.oracle.com/database/technologies/instant-client/winx64-64-downloads.html>  
+   Choose *Basic* or *Basic Light* → `instantclient-basic-windows.x64-21.x.x.x.x.zip`
+
+2. Extract the ZIP to a folder, for example:  
+   ```
+   C:\oracle\instantclient_21_14
+   ```
+
+3. Set the path in `backend/.env`:
+   ```env
+   ORACLE_CLIENT_LIB=C:\oracle\instantclient_21_14
+   ```
+
+4. Restart the backend. The startup log will confirm:
+   ```
+   oracledb running in Thick mode using client at: C:\oracle\instantclient_21_14
+   ```
+
+Leave `ORACLE_CLIENT_LIB` empty (or remove it) to keep using Thin mode.
 
 ### Sync endpoint
 `POST /sync`
