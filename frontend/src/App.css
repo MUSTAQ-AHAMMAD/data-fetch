@@ -347,10 +347,12 @@
   font-size: 13px;
 }
 
-.error-list {
-  margin-top: 8px;
-  padding: 10px;
-  border-radius: 10px;
-  background: rgba(255, 107, 107, 0.08);
-  border: 1px solid rgba(255, 107, 107, 0.3);
+.cta-cancel {
+  background: linear-gradient(135deg, #444c5c, #2d3546);
+  color: #cdd6f4;
+  margin-top: 0;
+}
+
+.cta-cancel:hover {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }

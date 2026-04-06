@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -74,12 +74,14 @@ function App() {
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
   const [posId, setPosId] = useState('')
-  const [orderFloor, setOrderFloor] = useState('5525874')
+  const [companyId, setCompanyId] = useState('')
+  const [orderFloor, setOrderFloor] = useState('')
   const [pageLimit, setPageLimit] = useState('100')
   const [status, setStatus] = useState({ tone: 'idle', message: 'Ready to sync' })
   const [summary, setSummary] = useState(null)
   const [health, setHealth] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+  const abortControllerRef = useRef(null)
 
   const apiRoot = useMemo(() => API_BASE.replace(/\/$/, ''), [])
   const formattedEndpoint = useMemo(() => `${apiRoot}/sync`, [apiRoot])
@@ -115,12 +117,16 @@ function App() {
     setStatus({ tone: 'busy', message: 'Contacting FastAPI service…' })
     setSummary(null)
 
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     const payload = {
       start_date: new Date(startDate).toISOString(),
       end_date: new Date(endDate).toISOString(),
-      order_id_gt: orderFloor ? Number(orderFloor) : undefined,
+      order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
+      company_id: companyId.trim() !== '' ? Number(companyId) : undefined,
     }
 
     try {
@@ -128,7 +134,14 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       })
+
+      if (response.status === 409) {
+        const detail = await response.json().catch(() => ({}))
+        setStatus({ tone: 'idle', message: detail?.detail || 'Sync cancelled.' })
+        return
+      }
 
       if (!response.ok) {
         const detail = await response.text()
@@ -145,10 +158,24 @@ function App() {
           : `Sync completed. Oracle ${data?.oracle?.connected ? 'connected' : 'unreachable'}.`,
       })
     } catch (error) {
-      setStatus({ tone: 'error', message: error.message })
+      if (error.name === 'AbortError') {
+        setStatus({ tone: 'idle', message: 'Sync cancelled.' })
+      } else {
+        setStatus({ tone: 'error', message: error.message })
+      }
     } finally {
+      abortControllerRef.current = null
       setIsLoading(false)
     }
+  }
+
+  const cancelSync = async () => {
+    try {
+      await fetch(`${apiRoot}/cancel`, { method: 'POST' })
+    } catch (_err) {
+      // best-effort; ignore network errors
+    }
+    abortControllerRef.current?.abort()
   }
 
   return (
@@ -189,23 +216,33 @@ function App() {
             </label>
             <div className="inline">
               <label className="field">
-                <span>POS ID</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={posId}
-                  onChange={(e) => setPosId(e.target.value)}
-                  placeholder="e.g. 342"
-                />
-              </label>
-              <label className="field">
                 <span>Order ID floor</span>
                 <input
                   type="number"
                   min="0"
                   value={orderFloor}
                   onChange={(e) => setOrderFloor(e.target.value)}
-                  placeholder="5525874"
+                  placeholder="optional"
+                />
+              </label>
+              <label className="field">
+                <span>POS ID</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={posId}
+                  onChange={(e) => setPosId(e.target.value)}
+                  placeholder="optional"
+                />
+              </label>
+              <label className="field">
+                <span>Company ID</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value)}
+                  placeholder="optional"
                 />
               </label>
               <label className="field">
@@ -222,6 +259,11 @@ function App() {
             <button type="submit" className="cta" disabled={isLoading}>
               {isLoading ? 'Syncing…' : 'Sync orders'}
             </button>
+            {isLoading && (
+              <button type="button" className="cta cta-cancel" onClick={cancelSync}>
+                Cancel
+              </button>
+            )}
             <div className={`status ${status.tone}`}>
               <span className="dot" />
               <span>{status.message}</span>

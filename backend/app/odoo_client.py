@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import HTTPException, status
 
+from . import cancel as _cancel
 from .config import Settings
 
 
@@ -18,25 +19,33 @@ async def fetch_orders(
     order_id_gt: Optional[int],
     page_limit: Optional[int],
     pos_id: Optional[int] = None,
+    company_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    headers = {"Authorization": f"Bearer {settings.odoo_api_key}"}
+    headers = {"x-api-key": settings.odoo_api_key}
     limit = page_limit or settings.page_limit
     offset = 0
     orders: List[Dict[str, Any]] = []
-    query_order_id = order_id_gt or settings.odoo_order_min_id
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         while True:
+            if _cancel.is_cancelled():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Sync cancelled during order fetch.",
+                )
             params: Dict[str, Any] = {
                 "start_date": _format_date(start_date),
                 "end_date": _format_date(end_date),
-                "order_id": f">{query_order_id}",
                 "order_by": "id ASC",
                 "limit": limit,
                 "offset": offset,
             }
+            if order_id_gt is not None:
+                params["order_id"] = f">{order_id_gt}"
             if pos_id is not None:
                 params["pos_id"] = pos_id
+            if company_id is not None:
+                params["company_id"] = company_id
 
             try:
                 response = await client.get(settings.odoo_api_url, headers=headers, params=params)

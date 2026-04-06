@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import cancel as _cancel
 from .config import Settings
 from .db import describe_target, test_connection
 from .schemas import HealthResponse, SyncRequest, SyncSummary
@@ -45,17 +46,23 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     )
 
 
+@app.post("/cancel")
+async def cancel_sync() -> dict:
+    _cancel.request_cancel()
+    return {"cancelled": True}
+
+
 @app.post("/sync", response_model=SyncSummary)
 async def trigger_sync(request: SyncRequest, settings: Settings = Depends(get_settings)) -> SyncSummary:
-    order_id_gt = request.order_id_gt or settings.odoo_order_min_id
     page_limit = request.limit or settings.page_limit
     summary = await sync_orders(
         settings=settings,
         start_date=request.start_date,
         end_date=request.end_date,
-        order_id_gt=order_id_gt,
+        order_id_gt=request.order_id_gt,
         page_limit=page_limit,
         pos_id=request.pos_id,
+        company_id=request.company_id,
     )
     return summary
 

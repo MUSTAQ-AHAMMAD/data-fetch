@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
 
+from . import cancel as _cancel
 from . import odoo_client
 from .config import Settings
 from .db import describe_target, get_connection, test_connection
@@ -395,7 +396,19 @@ async def _write_to_oracle(
         cursor = await asyncio.to_thread(conn.cursor)
         try:
             sales_report = await asyncio.to_thread(_merge_sales, cursor, sales_rows)
+            if _cancel.is_cancelled():
+                await asyncio.to_thread(conn.rollback)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Sync cancelled after sales write.",
+                )
             payments_report = await asyncio.to_thread(_merge_payments, cursor, payment_rows)
+            if _cancel.is_cancelled():
+                await asyncio.to_thread(conn.rollback)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Sync cancelled after payments write.",
+                )
             lines_report = await asyncio.to_thread(_merge_lines, cursor, line_rows)
             await asyncio.to_thread(conn.commit)
             return sales_report, payments_report, lines_report
@@ -407,10 +420,12 @@ async def sync_orders(
     settings: Settings,
     start_date: datetime,
     end_date: datetime,
-    order_id_gt: int,
+    order_id_gt: Optional[int],
     page_limit: int,
     pos_id: Optional[int] = None,
+    company_id: Optional[int] = None,
 ) -> SyncSummary:
+    _cancel.reset()
     _ensure_config(settings)
     oracle_target = describe_target(settings)
     oracle_connected = await test_connection(settings)
@@ -421,6 +436,7 @@ async def sync_orders(
         order_id_gt=order_id_gt,
         page_limit=page_limit,
         pos_id=pos_id,
+        company_id=company_id,
     )
 
     if not orders:
@@ -441,6 +457,12 @@ async def sync_orders(
                 target=oracle_target,
                 user=settings.oracle_user,
             ),
+        )
+
+    if _cancel.is_cancelled():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sync cancelled before writing to Oracle.",
         )
 
     try:
