@@ -9,6 +9,7 @@ class SyncRequest(BaseModel):
     end_date: datetime
     order_id_gt: Optional[int] = None
     limit: Optional[int] = None
+    pos_id: Optional[int] = None
 
     @model_validator(mode="after")
     def validate_dates(self) -> "SyncRequest":

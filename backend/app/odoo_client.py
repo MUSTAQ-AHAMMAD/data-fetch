@@ -17,6 +17,7 @@ async def fetch_orders(
     end_date: datetime,
     order_id_gt: Optional[int],
     page_limit: Optional[int],
+    pos_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     headers = {"Authorization": f"Bearer {settings.odoo_api_key}"}
     limit = page_limit or settings.page_limit
@@ -26,7 +27,7 @@ async def fetch_orders(
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         while True:
-            params = {
+            params: Dict[str, Any] = {
                 "start_date": _format_date(start_date),
                 "end_date": _format_date(end_date),
                 "order_id": f">{query_order_id}",
@@ -34,6 +35,8 @@ async def fetch_orders(
                 "limit": limit,
                 "offset": offset,
             }
+            if pos_id is not None:
+                params["pos_id"] = pos_id
 
             try:
                 response = await client.get(settings.odoo_api_url, headers=headers, params=params)

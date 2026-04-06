@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
 
@@ -409,6 +409,7 @@ async def sync_orders(
     end_date: datetime,
     order_id_gt: int,
     page_limit: int,
+    pos_id: Optional[int] = None,
 ) -> SyncSummary:
     _ensure_config(settings)
     oracle_target = describe_target(settings)
@@ -419,6 +420,7 @@ async def sync_orders(
         end_date=end_date,
         order_id_gt=order_id_gt,
         page_limit=page_limit,
+        pos_id=pos_id,
     )
 
     if not orders:
