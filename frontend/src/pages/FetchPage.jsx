@@ -2,10 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+const pad = (n) => String(n).padStart(2, '0')
+
+// Format a Date as a datetime-local input value using the browser's LOCAL timezone.
+// The datetime-local input does not carry timezone info; the browser interprets whatever
+// string is placed here as local time.  By formatting in local time we ensure that when
+// the user submits the form, `new Date(value).toISOString()` correctly converts their
+// local selection to UTC before sending it to the backend → Odoo.
 const toInputValue = (value) => {
-  const normalized = new Date(value)
-  normalized.setSeconds(0, 0)
-  return normalized.toISOString().slice(0, 16)
+  const d = new Date(value)
+  d.setSeconds(0, 0)
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  )
 }
 
 const defaultEnd = () => toInputValue(new Date())
@@ -173,7 +183,7 @@ export default function FetchPage() {
           </div>
           <form className="form" onSubmit={submit}>
             <label className="field">
-              <span>Start date/time</span>
+              <span>Start date/time <small className="tz-hint">(local time → UTC)</small></span>
               <input
                 type="datetime-local"
                 value={startDate}
@@ -182,7 +192,7 @@ export default function FetchPage() {
               />
             </label>
             <label className="field">
-              <span>End date/time</span>
+              <span>End date/time <small className="tz-hint">(local time → UTC)</small></span>
               <input
                 type="datetime-local"
                 value={endDate}
