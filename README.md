@@ -15,18 +15,9 @@ Full-stack app that pulls POS order data from the provided Odoo API and upserts 
    source .venv/bin/activate
    pip install -r backend/requirements.txt
    ```
-2. Copy `.env.example` to `.env` and fill values (API key and Oracle password are required):
-   ```env
-   ODOO_API_URL=https://ibrahimalquraishieu-26-2-26-29083802.dev.odoo.com/api/pos/order
-   ODOO_API_KEY=<your-api-key>
-   ODOO_ORDER_MIN_ID=5525874
-   ORACLE_HOST=193.122.68.27
-   ORACLE_PORT=1521
-   ORACLE_SERVICE=TestDB_jed1sw.dbsubnet.testvcn.oraclevcn.com
-   ORACLE_USER=SYS
-   ORACLE_PASSWORD=<oracle-password>
-   ORACLE_MODE=SYSDBA
-   ALLOWED_ORIGINS=["http://localhost:5173"]
+2. Copy `backend/.env.example` to `backend/.env` and fill in the required values (`ODOO_API_KEY` and `ORACLE_PASSWORD` are required):
+   ```bash
+   cp backend/.env.example backend/.env
    ```
 3. Run the API:
    ```bash
