@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.Python
+env/
+.venv/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+pip-wheel-metadata/
+
+# Node / Vite
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
