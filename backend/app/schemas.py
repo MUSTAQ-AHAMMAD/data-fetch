@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -72,4 +72,82 @@ class ConnectionReport(BaseModel):
     user: str
 
 
+# ── Local data query / response ──────────────────────────────────────────────
+
+class LocalDataQuery(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    invoice_number: Optional[str] = None
+    outlet_name: Optional[str] = None
+    synced: Optional[bool] = None
+    limit: int = 500
+    offset: int = 0
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("limit must be positive")
+        if value > 2000:
+            raise ValueError("limit must not exceed 2000")
+        return value
+
+    @field_validator("offset")
+    @classmethod
+    def validate_offset(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("offset must be non-negative")
+        return value
+
+
+class LocalDataResponse(BaseModel):
+    total: int
+    rows: List[Dict[str, Any]]
+
+
+class UnsyncedCount(BaseModel):
+    sales: int
+    payments: int
+    line_items: int
+
+
+# ── Oracle push ───────────────────────────────────────────────────────────────
+
+class PushRequest(BaseModel):
+    tables: Optional[List[str]] = None
+    batch_size: int = 500
+
+    @field_validator("tables")
+    @classmethod
+    def validate_tables(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return value
+        valid = {"sales", "payments", "line_items"}
+        for t in value:
+            if t not in valid:
+                raise ValueError(f"Invalid table '{t}'. Must be one of: {sorted(valid)}")
+        return value
+
+    @field_validator("batch_size")
+    @classmethod
+    def validate_batch_size(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("batch_size must be positive")
+        if value > 5000:
+            raise ValueError("batch_size must not exceed 5000")
+        return value
+
+
+class PushSummary(BaseModel):
+    sales_pushed: int
+    payments_pushed: int
+    line_items_pushed: int
+    sales_report: "TableSyncReport"
+    payments_report: "TableSyncReport"
+    line_items_report: "TableSyncReport"
+    data_integrity_ok: bool
+    oracle: "ConnectionReport"
+
+
 SyncSummary.model_rebuild()
+PushSummary.model_rebuild()
