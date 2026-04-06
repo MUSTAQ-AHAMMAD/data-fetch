@@ -245,7 +245,7 @@ def _merge_sales(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
         return _empty_report()
     sql = """
-        MERGE INTO BACKUP_VENDHQ_SALES tgt
+        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_SALES tgt
         USING (
             SELECT
                 :row_id AS ROW_ID,
@@ -292,7 +292,7 @@ def _merge_payments(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
         return _empty_report()
     sql = """
-        MERGE INTO BACKUP_VENDHQ_PAYMENTS tgt
+        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_PAYMENTS tgt
         USING (
             SELECT
                 :row_id AS ROW_ID,
@@ -335,7 +335,7 @@ def _merge_lines(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
         return _empty_report()
     sql = """
-        MERGE INTO BACKUP_VENDHQ_LINE_ITEMS tgt
+        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_LINE_ITEMS tgt
         USING (
             SELECT
                 :row_id AS ROW_ID,
