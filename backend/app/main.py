@@ -55,6 +55,7 @@ async def trigger_sync(request: SyncRequest, settings: Settings = Depends(get_se
         end_date=request.end_date,
         order_id_gt=order_id_gt,
         page_limit=page_limit,
+        pos_id=request.pos_id,
     )
     return summary
 

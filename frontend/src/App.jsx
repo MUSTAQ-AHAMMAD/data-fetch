@@ -73,6 +73,7 @@ const renderTableReport = (title, report) => {
 function App() {
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
+  const [posId, setPosId] = useState('')
   const [orderFloor, setOrderFloor] = useState('5525874')
   const [pageLimit, setPageLimit] = useState('100')
   const [status, setStatus] = useState({ tone: 'idle', message: 'Ready to sync' })
@@ -119,6 +120,7 @@ function App() {
       end_date: new Date(endDate).toISOString(),
       order_id_gt: orderFloor ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
+      pos_id: posId ? Number(posId) : undefined,
     }
 
     try {
@@ -186,6 +188,16 @@ function App() {
               />
             </label>
             <div className="inline">
+              <label className="field">
+                <span>POS ID</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={posId}
+                  onChange={(e) => setPosId(e.target.value)}
+                  placeholder="e.g. 342"
+                />
+              </label>
               <label className="field">
                 <span>Order ID floor</span>
                 <input
