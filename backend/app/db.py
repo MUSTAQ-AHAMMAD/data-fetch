@@ -67,6 +67,14 @@ async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
         return pool_cache[key]
 
     dsn = f"{settings.oracle_host}:{settings.oracle_port}/{settings.oracle_service}"
+    mode_name = settings.oracle_mode or "DEFAULT"
+    logger.info(
+        "Creating Oracle connection pool: dsn=%s user=%s auth_mode=%s thick_mode=%s",
+        dsn,
+        settings.oracle_user,
+        mode_name,
+        bool(settings.oracle_client_lib),
+    )
 
     create_pool_kwargs: dict = dict(
         user=settings.oracle_user,
@@ -85,9 +93,21 @@ async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
         create_pool_kwargs["encoding"] = "UTF-8"
         create_pool_kwargs["nencoding"] = "UTF-8"
 
-    pool = await asyncio.to_thread(oracledb.create_pool, **create_pool_kwargs)
-    pool_cache[key] = pool
-    return pool
+    try:
+        pool = await asyncio.to_thread(oracledb.create_pool, **create_pool_kwargs)
+        pool_cache[key] = pool
+        logger.info("Oracle connection pool created successfully: %s", key)
+        return pool
+    except Exception as exc:
+        logger.error(
+            "Failed to create Oracle connection pool [dsn=%s user=%s mode=%s]: %s",
+            dsn,
+            settings.oracle_user,
+            mode_name,
+            exc,
+            exc_info=True,
+        )
+        raise
 
 
 @asynccontextmanager
@@ -102,6 +122,12 @@ async def get_connection(settings: Settings) -> oracledb.Connection:
 
 async def test_connection(settings: Settings) -> bool:
     if not settings.oracle_host or not settings.oracle_service or not settings.oracle_password:
+        logger.debug(
+            "Oracle connection skipped – missing config: host=%r service=%r password_set=%s",
+            settings.oracle_host,
+            settings.oracle_service,
+            bool(settings.oracle_password),
+        )
         return False
     try:
         async with get_connection(settings) as conn:
@@ -109,6 +135,17 @@ async def test_connection(settings: Settings) -> bool:
             await asyncio.to_thread(cursor.execute, "SELECT 1 FROM dual")
             await asyncio.to_thread(cursor.fetchone)
             await asyncio.to_thread(cursor.close)
+        logger.info("Oracle connection test succeeded: %s", _pool_key(settings))
         return True
-    except Exception:
+    except Exception as exc:
+        logger.error(
+            "Oracle connection test FAILED [host=%s port=%s service=%s user=%s mode=%s]: %s",
+            settings.oracle_host,
+            settings.oracle_port,
+            settings.oracle_service,
+            settings.oracle_user,
+            settings.oracle_mode,
+            exc,
+            exc_info=True,
+        )
         return False

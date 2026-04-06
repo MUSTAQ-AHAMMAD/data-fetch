@@ -165,7 +165,8 @@ export default function DataPage() {
 
   useEffect(() => {
     setOffset(0)
-    setResult({ total: 0, rows: [] })
+    fetchData(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   const handleSearch = () => {

@@ -251,7 +251,8 @@ async def query_sales(
     path = _get_db_path(settings)
     params: Dict[str, Any] = {"limit": limit, "offset": offset}
     where = _build_where(params, start_date, end_date, invoice_number, outlet_name, synced)
-    sql = f"SELECT * FROM TEST_BACKUP_VENDHQ_SALES{where} ORDER BY ROW_ID DESC LIMIT :limit OFFSET :offset"
+    order_by = "OUTLET_NAME ASC, ROW_ID DESC" if outlet_name else "ROW_ID DESC"
+    sql = f"SELECT * FROM TEST_BACKUP_VENDHQ_SALES{where} ORDER BY {order_by} LIMIT :limit OFFSET :offset"
     count_sql = f"SELECT COUNT(*) FROM TEST_BACKUP_VENDHQ_SALES{where}"
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
@@ -277,7 +278,8 @@ async def query_payments(
     path = _get_db_path(settings)
     params: Dict[str, Any] = {"limit": limit, "offset": offset}
     where = _build_where(params, start_date, end_date, invoice_number, outlet_name, synced)
-    sql = f"SELECT * FROM TEST_BACKUP_VENDHQ_PAYMENTS{where} ORDER BY ROW_ID DESC LIMIT :limit OFFSET :offset"
+    order_by = "OUTLET_NAME ASC, ROW_ID DESC" if outlet_name else "ROW_ID DESC"
+    sql = f"SELECT * FROM TEST_BACKUP_VENDHQ_PAYMENTS{where} ORDER BY {order_by} LIMIT :limit OFFSET :offset"
     count_sql = f"SELECT COUNT(*) FROM TEST_BACKUP_VENDHQ_PAYMENTS{where}"
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
@@ -303,7 +305,8 @@ async def query_line_items(
     path = _get_db_path(settings)
     params: Dict[str, Any] = {"limit": limit, "offset": offset}
     where = _build_where(params, start_date, end_date, invoice_number, outlet_name, synced, date_col="SALE_DATE")
-    sql = f"SELECT * FROM TEST_BACKUP_VENDHQ_LINE_ITEMS{where} ORDER BY ROW_ID DESC LIMIT :limit OFFSET :offset"
+    order_by = "OUTLET_NAME ASC, ROW_ID DESC" if outlet_name else "ROW_ID DESC"
+    sql = f"SELECT * FROM TEST_BACKUP_VENDHQ_LINE_ITEMS{where} ORDER BY {order_by} LIMIT :limit OFFSET :offset"
     count_sql = f"SELECT COUNT(*) FROM TEST_BACKUP_VENDHQ_LINE_ITEMS{where}"
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row

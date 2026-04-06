@@ -76,6 +76,13 @@
   font-size: 14px;
 }
 
+.field span .tz-hint {
+  font-size: 11px;
+  opacity: 0.6;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
 .field input {
   background: var(--input-bg);
   border: 1px solid var(--input-stroke);
