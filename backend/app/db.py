@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 import oracledb
@@ -8,6 +9,7 @@ from .config import Settings
 
 pool_cache: dict[str, oracledb.ConnectionPool] = {}
 _thick_mode_initialized = False
+_thick_mode_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +22,25 @@ def _ensure_thick_mode(client_lib: str) -> None:
     Thin mode (pure-Python, no client installation needed).
     """
     global _thick_mode_initialized
-    if _thick_mode_initialized or not client_lib:
+    if not client_lib:
         return
-    try:
-        oracledb.init_oracle_client(lib_dir=client_lib)
-        _thick_mode_initialized = True
-        logger.info("oracledb running in Thick mode using client at: %s", client_lib)
-    except oracledb.ProgrammingError:
-        # Already initialized (e.g. multiple workers) – that is fine.
-        _thick_mode_initialized = True
-    except Exception as exc:
-        logger.warning(
-            "Could not initialize Oracle Thick client from '%s': %s. "
-            "Falling back to Thin mode.",
-            client_lib,
-            exc,
-        )
+    with _thick_mode_lock:
+        if _thick_mode_initialized:
+            return
+        try:
+            oracledb.init_oracle_client(lib_dir=client_lib)
+            _thick_mode_initialized = True
+            logger.info("oracledb running in Thick mode using client at: %s", client_lib)
+        except oracledb.ProgrammingError:
+            # Already initialized (e.g. reloaded module) – that is fine.
+            _thick_mode_initialized = True
+        except Exception as exc:
+            logger.warning(
+                "Could not initialize Oracle Thick client from '%s': %s. "
+                "Falling back to Thin mode.",
+                client_lib,
+                exc,
+            )
 
 
 def _auth_mode(mode_name: str) -> int:
@@ -76,7 +81,7 @@ async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
 
     # encoding / nencoding are only valid in Thick mode; omit them for Thin
     # mode to avoid a TypeError from python-oracledb.
-    if _thick_mode_initialized:
+    if settings.oracle_client_lib:
         create_pool_kwargs["encoding"] = "UTF-8"
         create_pool_kwargs["nencoding"] = "UTF-8"
 
