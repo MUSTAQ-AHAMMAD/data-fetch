@@ -40,14 +40,39 @@ Full-stack app that pulls POS order data from the provided Odoo API and upserts 
   "start_date": "2026-02-01T00:00:00",
   "end_date": "2026-02-02T23:59:59",
   "order_id_gt": 5525874,
-  "limit": 100
+"limit": 100
 }
 ```
 - Fetches Odoo POS orders (paged, ordered ascending by id) and upserts into the three Oracle tables.
 - Customer type rules: contains `WC-` → `WHOLESALE`, contains `VIP` → `VIP`, otherwise `NORMAL`.
 - Line items: calculates discount from percentage, uses `OUTPUT-GOODS-DOM-15%` as tax name, sets `INV_UPLOAD_QNT_FLAG` to `Y` when the item name contains `TOBACCO`.
+- Response now includes per-table sync reports, retry batches for any rows Oracle rejected, and the Oracle connection target/user:
+  ```json
+  {
+    "orders_fetched": 10,
+    "sales_upserted": 10,
+    "payments_upserted": 10,
+    "line_items_upserted": 24,
+    "sales_report": {
+      "attempted": 10,
+      "upserted": 10,
+      "missing_row_ids": [],
+      "retry_batches": [],
+      "errors": []
+    },
+    "payments_report": { "...": "..." },
+    "line_items_report": { "...": "..." },
+    "data_integrity_ok": true,
+    "oracle": {
+      "connected": true,
+      "target": "193.122.68.27:1521/TestDB_jed1sw.dbsubnet.testvcn.oraclevcn.com",
+      "user": "SYS"
+    }
+  }
+  ```
+- If Oracle rejects any rows (for example, due to performance timeouts), the `retry_batches` field lists row IDs that can be retried separately to guarantee 100% coverage.
 
-Health check: `GET /health` reports Oracle connectivity and API key presence.
+Health check: `GET /health` reports Oracle connectivity, target descriptor, and API key presence.
 
 ## Frontend (Vite + React)
 1. Configure the API base URL:

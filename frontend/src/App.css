@@ -223,3 +223,134 @@
   color: var(--text);
   word-break: break-all;
 }
+
+.label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.value {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.integrity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--panel-stroke);
+  border-radius: 12px;
+  background: var(--input-bg);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid var(--panel-stroke);
+}
+
+.pill-ok {
+  background: rgba(61, 213, 152, 0.12);
+  color: #5af2b7;
+  border-color: rgba(61, 213, 152, 0.3);
+}
+
+.pill-warn {
+  background: rgba(255, 107, 107, 0.12);
+  color: #ff8a7a;
+  border-color: rgba(255, 107, 107, 0.35);
+}
+
+.report-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.table-report {
+  border: 1px solid var(--panel-stroke);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--input-bg);
+}
+
+.table-report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.mini-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.value.small {
+  font-size: 22px;
+}
+
+.retry-block {
+  margin-top: 10px;
+}
+
+.retry-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.retry-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 183, 3, 0.14);
+  color: #ffb703;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.ids {
+  font-family: 'Space Grotesk', monospace;
+  color: var(--text-strong);
+}
+
+.reason {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.warn {
+  color: #ff8a7a;
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.error-list {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.08);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}

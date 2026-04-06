@@ -18,6 +18,12 @@ def _pool_key(settings: Settings) -> str:
     return f"{settings.oracle_user}@{settings.oracle_host}:{settings.oracle_port}/{settings.oracle_service}"
 
 
+def describe_target(settings: Settings) -> str:
+    if not settings.oracle_host or not settings.oracle_service:
+        return "not configured"
+    return f"{settings.oracle_host}:{settings.oracle_port}/{settings.oracle_service}"
+
+
 async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
     key = _pool_key(settings)
     if key in pool_cache:

@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings
-from .db import test_connection
+from .db import describe_target, test_connection
 from .schemas import HealthResponse, SyncRequest, SyncSummary
 from .sync_service import sync_orders
 
@@ -36,7 +36,13 @@ _setup_cors(app, get_settings())
 @app.get("/health", response_model=HealthResponse)
 async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     oracle_ok = await test_connection(settings)
-    return HealthResponse(status="ok", oracle_connected=oracle_ok, odoo_ready=bool(settings.odoo_api_key))
+    return HealthResponse(
+        status="ok",
+        oracle_connected=oracle_ok,
+        oracle_target=describe_target(settings),
+        oracle_user=settings.oracle_user,
+        odoo_ready=bool(settings.odoo_api_key),
+    )
 
 
 @app.post("/sync", response_model=SyncSummary)
