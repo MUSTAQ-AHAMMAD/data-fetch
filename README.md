@@ -63,6 +63,11 @@ Health check: `GET /health` reports Oracle connectivity and API key presence.
    ```
 3. The UI lets you pick a start/end datetime, an optional order-id floor, and page size. It calls the FastAPI `/sync` endpoint and shows returned counts.
 
+## UI preview
+![Desktop UI](docs/screenshots/ui-desktop.png)
+
+![Mobile UI](docs/screenshots/ui-mobile.png)
+
 ## Validation
 - Frontend: `cd frontend && npm run build`
 - Backend: there are no automated tests yet; after installing requirements you can sanity check syntax with `python -m compileall backend`.
