@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -7,15 +6,13 @@ from fastapi import HTTPException, status
 from . import cancel as _cancel
 from . import odoo_client
 from .config import Settings
-from .db import describe_target, get_connection, test_connection
+from .db import describe_target, test_connection
+from .local_db import init_db, upsert_line_items, upsert_payments, upsert_sales
 from .schemas import (
     ConnectionReport,
-    RetryBatch,
     SyncSummary,
     TableSyncReport,
 )
-
-RETRY_BATCH_SIZE = 50
 
 
 def _parse_date(date_str: str) -> datetime:
@@ -68,32 +65,7 @@ def _inv_upload_flag(item_name: str) -> str:
     return "N"
 
 
-def _chunk_list(values: List[int], size: int) -> List[List[int]]:
-    return [values[idx : idx + size] for idx in range(0, len(values), size)]
-
-
-def _build_retry_batches(missing_ids: List[int]) -> List[RetryBatch]:
-    if not missing_ids:
-        return []
-    return [
-        RetryBatch(
-            row_ids=batch,
-            reason="Oracle merge did not accept these rows; safe to retry in a follow-up batch.",
-        )
-        for batch in _chunk_list(missing_ids, RETRY_BATCH_SIZE)
-    ]
-
-
 def _ensure_config(settings: Settings) -> None:
-    missing = []
-    for key in ("oracle_host", "oracle_service", "oracle_password"):
-        if not getattr(settings, key):
-            missing.append(key)
-    if missing:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Missing Oracle configuration values: {', '.join(missing)}",
-        )
     if not settings.odoo_api_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -206,214 +178,37 @@ def _empty_report() -> TableSyncReport:
     )
 
 
-def _merge_rows(cursor, rows: List[Dict[str, Any]], sql: str) -> TableSyncReport:
-    if not rows:
-        return _empty_report()
-
-    cursor.executemany(sql, rows, batcherrors=True)
-    errors = cursor.getbatcherrors() or []
-    missing_ids: List[int] = []
-    error_messages: List[str] = []
-    for error in errors:
-        offset = getattr(error, "offset", None)
-        message = getattr(error, "message", "").strip() or "Oracle merge error"
-        if offset is not None:
-            message = f"{message} (row offset {offset})"
-        error_messages.append(message)
-        if offset is None:
-            continue
-        if 0 <= offset < len(rows):
-            row_id = rows[offset].get("row_id")
-            if row_id is not None:
-                missing_ids.append(int(row_id))
-
-    return TableSyncReport(
-        attempted=len(rows),
-        upserted=len(rows) - len(errors),
-        missing_row_ids=missing_ids,
-        retry_batches=_build_retry_batches(missing_ids),
-        errors=error_messages,
-    )
-
-
 def _data_integrity_ok(reports: List[TableSyncReport]) -> bool:
     return all(
         report.upserted == report.attempted and not report.missing_row_ids for report in reports
     )
 
 
-def _merge_sales(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
-    if not rows:
-        return _empty_report()
-    sql = """
-        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_SALES tgt
-        USING (
-            SELECT
-                :row_id AS ROW_ID,
-                :invoice_number AS INVOICE_NUMBER,
-                :outlet_name AS OUTLET_NAME,
-                :register_name AS REGISTER_NAME,
-                :sale_date AS SALE_DATE,
-                :total_price AS TOTAL_PRICE,
-                :total_tax AS TOTAL_TAX,
-                :total_loyalty AS TOTAL_LOYALTY,
-                :total_price_incl_tax AS TOTAL_PRICE_INCL_TAX,
-                :version AS VERSION,
-                :region AS REGION,
-                :customer_type AS CUSTOMER_TYPE
-            FROM dual
-        ) src
-        ON (tgt.ROW_ID = src.ROW_ID)
-        WHEN MATCHED THEN UPDATE SET
-            tgt.INVOICE_NUMBER = src.INVOICE_NUMBER,
-            tgt.OUTLET_NAME = src.OUTLET_NAME,
-            tgt.REGISTER_NAME = src.REGISTER_NAME,
-            tgt.SALE_DATE = src.SALE_DATE,
-            tgt.TOTAL_PRICE = src.TOTAL_PRICE,
-            tgt.TOTAL_TAX = src.TOTAL_TAX,
-            tgt.TOTAL_LOYALTY = src.TOTAL_LOYALTY,
-            tgt.TOTAL_PRICE_INCL_TAX = src.TOTAL_PRICE_INCL_TAX,
-            tgt.VERSION = src.VERSION,
-            tgt.REGION = src.REGION,
-            tgt.CUSTOMER_TYPE = src.CUSTOMER_TYPE
-        WHEN NOT MATCHED THEN INSERT (
-            ROW_ID, INVOICE_NUMBER, OUTLET_NAME, REGISTER_NAME, SALE_DATE,
-            TOTAL_PRICE, TOTAL_TAX, TOTAL_LOYALTY, TOTAL_PRICE_INCL_TAX,
-            VERSION, REGION, CUSTOMER_TYPE
-        ) VALUES (
-            src.ROW_ID, src.INVOICE_NUMBER, src.OUTLET_NAME, src.REGISTER_NAME, src.SALE_DATE,
-            src.TOTAL_PRICE, src.TOTAL_TAX, src.TOTAL_LOYALTY, src.TOTAL_PRICE_INCL_TAX,
-            src.VERSION, src.REGION, src.CUSTOMER_TYPE
-        )
-    """
-    return _merge_rows(cursor, rows, sql)
-
-
-def _merge_payments(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
-    if not rows:
-        return _empty_report()
-    sql = """
-        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_PAYMENTS tgt
-        USING (
-            SELECT
-                :row_id AS ROW_ID,
-                :invoice_number AS INVOICE_NUMBER,
-                :outlet_name AS OUTLET_NAME,
-                :register_name AS REGISTER_NAME,
-                :amount AS AMOUNT,
-                :currency AS CURRENCY,
-                :payment_type AS PAYMENT_TYPE,
-                :payment_date AS PAYMENT_DATE,
-                :deleted_at AS DELETED_AT,
-                :region AS REGION,
-                :sale_date AS SALE_DATE
-            FROM dual
-        ) src
-        ON (tgt.ROW_ID = src.ROW_ID)
-        WHEN MATCHED THEN UPDATE SET
-            tgt.INVOICE_NUMBER = src.INVOICE_NUMBER,
-            tgt.OUTLET_NAME = src.OUTLET_NAME,
-            tgt.REGISTER_NAME = src.REGISTER_NAME,
-            tgt.AMOUNT = src.AMOUNT,
-            tgt.CURRENCY = src.CURRENCY,
-            tgt.PAYMENT_TYPE = src.PAYMENT_TYPE,
-            tgt.PAYMENT_DATE = src.PAYMENT_DATE,
-            tgt.DELETED_AT = src.DELETED_AT,
-            tgt.REGION = src.REGION,
-            tgt.SALE_DATE = src.SALE_DATE
-        WHEN NOT MATCHED THEN INSERT (
-            ROW_ID, INVOICE_NUMBER, OUTLET_NAME, REGISTER_NAME, AMOUNT, CURRENCY,
-            PAYMENT_TYPE, PAYMENT_DATE, DELETED_AT, REGION, SALE_DATE
-        ) VALUES (
-            src.ROW_ID, src.INVOICE_NUMBER, src.OUTLET_NAME, src.REGISTER_NAME, src.AMOUNT, src.CURRENCY,
-            src.PAYMENT_TYPE, src.PAYMENT_DATE, src.DELETED_AT, src.REGION, src.SALE_DATE
-        )
-    """
-    return _merge_rows(cursor, rows, sql)
-
-
-def _merge_lines(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
-    if not rows:
-        return _empty_report()
-    sql = """
-        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_LINE_ITEMS tgt
-        USING (
-            SELECT
-                :row_id AS ROW_ID,
-                :invoice_number AS INVOICE_NUMBER,
-                :line_number AS LINE_NUMBER,
-                :item_number AS ITEM_NUMBER,
-                :item_name AS ITEM_NAME,
-                :quantity AS QUANTITY,
-                :loyalty_value AS LOYALTY_VALUE,
-                :total_price AS TOTAL_PRICE,
-                :total_tax AS TOTAL_TAX,
-                :total_discount AS TOTAL_DISCOUNT,
-                :total_loyalty AS TOTAL_LOYALTY,
-                :region AS REGION,
-                :sale_date AS SALE_DATE,
-                :tax_name AS TAX_NAME,
-                :inv_upload_qnt_flag AS INV_UPLOAD_QNT_FLAG
-            FROM dual
-        ) src
-        ON (tgt.ROW_ID = src.ROW_ID)
-        WHEN MATCHED THEN UPDATE SET
-            tgt.INVOICE_NUMBER = src.INVOICE_NUMBER,
-            tgt.LINE_NUMBER = src.LINE_NUMBER,
-            tgt.ITEM_NUMBER = src.ITEM_NUMBER,
-            tgt.ITEM_NAME = src.ITEM_NAME,
-            tgt.QUANTITY = src.QUANTITY,
-            tgt.LOYALTY_VALUE = src.LOYALTY_VALUE,
-            tgt.TOTAL_PRICE = src.TOTAL_PRICE,
-            tgt.TOTAL_TAX = src.TOTAL_TAX,
-            tgt.TOTAL_DISCOUNT = src.TOTAL_DISCOUNT,
-            tgt.TOTAL_LOYALTY = src.TOTAL_LOYALTY,
-            tgt.REGION = src.REGION,
-            tgt.SALE_DATE = src.SALE_DATE,
-            tgt.TAX_NAME = src.TAX_NAME,
-            tgt.INV_UPLOAD_QNT_FLAG = src.INV_UPLOAD_QNT_FLAG
-        WHEN NOT MATCHED THEN INSERT (
-            ROW_ID, INVOICE_NUMBER, LINE_NUMBER, ITEM_NUMBER, ITEM_NAME, QUANTITY,
-            LOYALTY_VALUE, TOTAL_PRICE, TOTAL_TAX, TOTAL_DISCOUNT, TOTAL_LOYALTY,
-            REGION, SALE_DATE, TAX_NAME, INV_UPLOAD_QNT_FLAG
-        ) VALUES (
-            src.ROW_ID, src.INVOICE_NUMBER, src.LINE_NUMBER, src.ITEM_NUMBER, src.ITEM_NAME, src.QUANTITY,
-            src.LOYALTY_VALUE, src.TOTAL_PRICE, src.TOTAL_TAX, src.TOTAL_DISCOUNT, src.TOTAL_LOYALTY,
-            src.REGION, src.SALE_DATE, src.TAX_NAME, src.INV_UPLOAD_QNT_FLAG
-        )
-    """
-    return _merge_rows(cursor, rows, sql)
-
-
-async def _write_to_oracle(
+async def _write_to_local(
     settings: Settings, orders: List[Dict[str, Any]]
 ) -> Tuple[TableSyncReport, TableSyncReport, TableSyncReport]:
+    """Store fetched Odoo orders in the local SQLite database."""
     sales_rows = _build_sales_rows(orders, settings)
     payment_rows = _build_payment_rows(orders, settings)
     line_rows = _build_line_rows(orders, settings)
 
-    async with get_connection(settings) as conn:
-        cursor = await asyncio.to_thread(conn.cursor)
-        try:
-            sales_report = await asyncio.to_thread(_merge_sales, cursor, sales_rows)
-            if _cancel.is_cancelled():
-                await asyncio.to_thread(conn.rollback)
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Sync cancelled after sales write.",
-                )
-            payments_report = await asyncio.to_thread(_merge_payments, cursor, payment_rows)
-            if _cancel.is_cancelled():
-                await asyncio.to_thread(conn.rollback)
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Sync cancelled after payments write.",
-                )
-            lines_report = await asyncio.to_thread(_merge_lines, cursor, line_rows)
-            await asyncio.to_thread(conn.commit)
-            return sales_report, payments_report, lines_report
-        finally:
-            await asyncio.to_thread(cursor.close)
+    await init_db(settings)
+    sales_count = await upsert_sales(settings, sales_rows)
+    payment_count = await upsert_payments(settings, payment_rows)
+    line_count = await upsert_line_items(settings, line_rows)
+
+    empty_report = lambda attempted, upserted: TableSyncReport(
+        attempted=attempted,
+        upserted=upserted,
+        missing_row_ids=[],
+        retry_batches=[],
+        errors=[],
+    )
+    return (
+        empty_report(len(sales_rows), sales_count),
+        empty_report(len(payment_rows), payment_count),
+        empty_report(len(line_rows), line_count),
+    )
 
 
 async def sync_orders(
@@ -462,16 +257,15 @@ async def sync_orders(
     if _cancel.is_cancelled():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Sync cancelled before writing to Oracle.",
+            detail="Sync cancelled before writing to local database.",
         )
 
     try:
-        sales_report, payments_report, lines_report = await _write_to_oracle(settings, orders)
-        oracle_connected = True
+        sales_report, payments_report, lines_report = await _write_to_local(settings, orders)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to write to Oracle ({oracle_target}): {exc}",
+            detail=f"Failed to write to local database: {exc}",
         ) from exc
 
     reports = [sales_report, payments_report, lines_report]
