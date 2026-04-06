@@ -199,6 +199,15 @@ async def upsert_line_items(settings: Settings, rows: List[Dict[str, Any]]) -> i
     return len(rows)
 
 
+_ALLOWED_TABLES = {
+    "TEST_BACKUP_VENDHQ_SALES",
+    "TEST_BACKUP_VENDHQ_PAYMENTS",
+    "TEST_BACKUP_VENDHQ_LINE_ITEMS",
+}
+
+_ALLOWED_DATE_COLS = {"SALE_DATE", "PAYMENT_DATE"}
+
+
 def _build_where(
     params: Dict[str, Any],
     start_date: Optional[str],
@@ -208,6 +217,8 @@ def _build_where(
     synced: Optional[bool],
     date_col: str = "SALE_DATE",
 ) -> str:
+    if date_col not in _ALLOWED_DATE_COLS:
+        raise ValueError(f"Invalid date_col: {date_col!r}")
     clauses = []
     if start_date:
         clauses.append(f"{date_col} >= :start_date")
@@ -308,6 +319,8 @@ async def query_line_items(
 async def mark_synced(settings: Settings, table: str, row_ids: List[int]) -> None:
     if not row_ids:
         return
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"Invalid table: {table!r}")
     path = _get_db_path(settings)
     placeholders = ",".join("?" * len(row_ids))
     sql = f"UPDATE {table} SET SYNCED_TO_ORACLE = 1 WHERE ROW_ID IN ({placeholders})"
