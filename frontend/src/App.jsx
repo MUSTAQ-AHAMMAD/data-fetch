@@ -120,7 +120,7 @@ function App() {
       end_date: new Date(endDate).toISOString(),
       order_id_gt: orderFloor ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
-      pos_id: posId ? Number(posId) : undefined,
+      pos_id: posId.trim() !== '' ? Number(posId) : undefined,
     }
 
     try {
