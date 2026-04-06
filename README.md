@@ -5,7 +5,7 @@ Full-stack app that pulls POS order data from the provided Odoo API and upserts 
 ## Prerequisites
 - Python 3.10+ with `pip`
 - Node 18+ with `npm`
-- Oracle network access and privileges to write to `BACKUP_VENDHQ_SALES`, `BACKUP_VENDHQ_PAYMENTS`, and `BACKUP_VENDHQ_LINE_ITEMS`
+- Oracle network access and privileges to write to `ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_SALES`, `ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_PAYMENTS`, and `ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_LINE_ITEMS`
 - Odoo API key
 
 ## Backend (FastAPI + Oracle)
