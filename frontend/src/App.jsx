@@ -74,7 +74,8 @@ function App() {
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
   const [posId, setPosId] = useState('')
-  const [orderFloor, setOrderFloor] = useState('5525874')
+  const [companyId, setCompanyId] = useState('')
+  const [orderFloor, setOrderFloor] = useState('')
   const [pageLimit, setPageLimit] = useState('100')
   const [status, setStatus] = useState({ tone: 'idle', message: 'Ready to sync' })
   const [summary, setSummary] = useState(null)
@@ -118,9 +119,10 @@ function App() {
     const payload = {
       start_date: new Date(startDate).toISOString(),
       end_date: new Date(endDate).toISOString(),
-      order_id_gt: orderFloor ? Number(orderFloor) : undefined,
+      order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
+      company_id: companyId.trim() !== '' ? Number(companyId) : undefined,
     }
 
     try {
@@ -189,23 +191,33 @@ function App() {
             </label>
             <div className="inline">
               <label className="field">
-                <span>POS ID</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={posId}
-                  onChange={(e) => setPosId(e.target.value)}
-                  placeholder="e.g. 342"
-                />
-              </label>
-              <label className="field">
                 <span>Order ID floor</span>
                 <input
                   type="number"
                   min="0"
                   value={orderFloor}
                   onChange={(e) => setOrderFloor(e.target.value)}
-                  placeholder="5525874"
+                  placeholder="optional"
+                />
+              </label>
+              <label className="field">
+                <span>POS ID</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={posId}
+                  onChange={(e) => setPosId(e.target.value)}
+                  placeholder="optional"
+                />
+              </label>
+              <label className="field">
+                <span>Company ID</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value)}
+                  placeholder="optional"
                 />
               </label>
               <label className="field">

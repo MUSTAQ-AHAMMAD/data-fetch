@@ -407,9 +407,10 @@ async def sync_orders(
     settings: Settings,
     start_date: datetime,
     end_date: datetime,
-    order_id_gt: int,
+    order_id_gt: Optional[int],
     page_limit: int,
     pos_id: Optional[int] = None,
+    company_id: Optional[int] = None,
 ) -> SyncSummary:
     _ensure_config(settings)
     oracle_target = describe_target(settings)
@@ -421,6 +422,7 @@ async def sync_orders(
         order_id_gt=order_id_gt,
         page_limit=page_limit,
         pos_id=pos_id,
+        company_id=company_id,
     )
 
     if not orders:
