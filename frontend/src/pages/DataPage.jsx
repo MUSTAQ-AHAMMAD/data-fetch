@@ -166,6 +166,9 @@ export default function DataPage() {
   useEffect(() => {
     setOffset(0)
     fetchData(0)
+    // fetchData is defined inside the component and changes every render, but adding it
+    // to deps would cause an infinite loop.  We intentionally re-run only when the active
+    // tab changes (and on initial mount), using the current filters captured at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
