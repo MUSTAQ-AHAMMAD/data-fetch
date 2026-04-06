@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import cancel as _cancel
 from .config import Settings
 from .db import describe_target, test_connection
 from .schemas import HealthResponse, SyncRequest, SyncSummary
@@ -43,6 +44,12 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
         oracle_user=settings.oracle_user,
         odoo_ready=bool(settings.odoo_api_key),
     )
+
+
+@app.post("/cancel")
+async def cancel_sync() -> dict:
+    _cancel.request_cancel()
+    return {"cancelled": True}
 
 
 @app.post("/sync", response_model=SyncSummary)

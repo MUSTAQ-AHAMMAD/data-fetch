@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -81,6 +81,7 @@ function App() {
   const [summary, setSummary] = useState(null)
   const [health, setHealth] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+  const abortControllerRef = useRef(null)
 
   const apiRoot = useMemo(() => API_BASE.replace(/\/$/, ''), [])
   const formattedEndpoint = useMemo(() => `${apiRoot}/sync`, [apiRoot])
@@ -116,6 +117,9 @@ function App() {
     setStatus({ tone: 'busy', message: 'Contacting FastAPI service…' })
     setSummary(null)
 
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     const payload = {
       start_date: new Date(startDate).toISOString(),
       end_date: new Date(endDate).toISOString(),
@@ -130,7 +134,14 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       })
+
+      if (response.status === 409) {
+        const detail = await response.json().catch(() => ({}))
+        setStatus({ tone: 'idle', message: detail?.detail || 'Sync cancelled.' })
+        return
+      }
 
       if (!response.ok) {
         const detail = await response.text()
@@ -147,10 +158,24 @@ function App() {
           : `Sync completed. Oracle ${data?.oracle?.connected ? 'connected' : 'unreachable'}.`,
       })
     } catch (error) {
-      setStatus({ tone: 'error', message: error.message })
+      if (error.name === 'AbortError') {
+        setStatus({ tone: 'idle', message: 'Sync cancelled.' })
+      } else {
+        setStatus({ tone: 'error', message: error.message })
+      }
     } finally {
+      abortControllerRef.current = null
       setIsLoading(false)
     }
+  }
+
+  const cancelSync = async () => {
+    try {
+      await fetch(`${apiRoot}/cancel`, { method: 'POST' })
+    } catch (_err) {
+      // best-effort; ignore network errors
+    }
+    abortControllerRef.current?.abort()
   }
 
   return (
@@ -234,6 +259,11 @@ function App() {
             <button type="submit" className="cta" disabled={isLoading}>
               {isLoading ? 'Syncing…' : 'Sync orders'}
             </button>
+            {isLoading && (
+              <button type="button" className="cta cta-cancel" onClick={cancelSync}>
+                Cancel
+              </button>
+            )}
             <div className={`status ${status.tone}`}>
               <span className="dot" />
               <span>{status.message}</span>

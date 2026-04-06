@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import HTTPException, status
 
+from . import cancel as _cancel
 from .config import Settings
 
 
@@ -27,6 +28,11 @@ async def fetch_orders(
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         while True:
+            if _cancel.is_cancelled():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Sync cancelled during order fetch.",
+                )
             params: Dict[str, Any] = {
                 "start_date": _format_date(start_date),
                 "end_date": _format_date(end_date),
