@@ -19,7 +19,7 @@ async def fetch_orders(
     page_limit: Optional[int],
     pos_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    headers = {"Authorization": f"Bearer {settings.odoo_api_key}"}
+    headers = {"x-api-key": settings.odoo_api_key}
     limit = page_limit or settings.page_limit
     offset = 0
     orders: List[Dict[str, Any]] = []
