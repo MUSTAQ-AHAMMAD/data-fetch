@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -36,9 +36,38 @@ class SyncSummary(BaseModel):
     sales_upserted: int
     payments_upserted: int
     line_items_upserted: int
+    sales_report: "TableSyncReport"
+    payments_report: "TableSyncReport"
+    line_items_report: "TableSyncReport"
+    data_integrity_ok: bool
+    oracle: "ConnectionReport"
 
 
 class HealthResponse(BaseModel):
     status: str
     oracle_connected: bool
+    oracle_target: str
+    oracle_user: str
     odoo_ready: bool
+
+
+class RetryBatch(BaseModel):
+    row_ids: List[int]
+    reason: str
+
+
+class TableSyncReport(BaseModel):
+    attempted: int
+    upserted: int
+    missing_row_ids: List[int]
+    retry_batches: List[RetryBatch]
+    errors: List[str]
+
+
+class ConnectionReport(BaseModel):
+    connected: bool
+    target: str
+    user: str
+
+
+SyncSummary.model_rebuild()

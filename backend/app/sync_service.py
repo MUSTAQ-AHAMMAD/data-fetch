@@ -6,8 +6,15 @@ from fastapi import HTTPException, status
 
 from . import odoo_client
 from .config import Settings
-from .db import get_connection
-from .schemas import SyncSummary
+from .db import describe_target, get_connection, test_connection
+from .schemas import (
+    ConnectionReport,
+    RetryBatch,
+    SyncSummary,
+    TableSyncReport,
+)
+
+RETRY_BATCH_SIZE = 50
 
 
 def _parse_date(date_str: str) -> datetime:
@@ -58,6 +65,22 @@ def _inv_upload_flag(item_name: str) -> str:
     if item_name and "TOBACCO" in item_name.upper():
         return "Y"
     return "N"
+
+
+def _chunk_list(values: List[int], size: int) -> List[List[int]]:
+    return [values[idx : idx + size] for idx in range(0, len(values), size)]
+
+
+def _build_retry_batches(missing_ids: List[int]) -> List[RetryBatch]:
+    if not missing_ids:
+        return []
+    return [
+        RetryBatch(
+            row_ids=batch,
+            reason="Oracle merge did not accept these rows; safe to retry in a follow-up batch.",
+        )
+        for batch in _chunk_list(missing_ids, RETRY_BATCH_SIZE)
+    ]
 
 
 def _ensure_config(settings: Settings) -> None:
@@ -172,9 +195,55 @@ def _build_line_rows(
     return rows
 
 
-def _merge_sales(cursor, rows: List[Dict[str, Any]]) -> int:
+def _empty_report() -> TableSyncReport:
+    return TableSyncReport(
+        attempted=0,
+        upserted=0,
+        missing_row_ids=[],
+        retry_batches=[],
+        errors=[],
+    )
+
+
+def _merge_rows(cursor, rows: List[Dict[str, Any]], sql: str) -> TableSyncReport:
     if not rows:
-        return 0
+        return _empty_report()
+
+    cursor.executemany(sql, rows, batcherrors=True)
+    errors = cursor.getbatcherrors() or []
+    missing_ids: List[int] = []
+    error_messages: List[str] = []
+    for error in errors:
+        offset = getattr(error, "offset", None)
+        message = getattr(error, "message", "").strip() or "Oracle merge error"
+        if offset is not None:
+            message = f"{message} (row offset {offset})"
+        error_messages.append(message)
+        if offset is None:
+            continue
+        if 0 <= offset < len(rows):
+            row_id = rows[offset].get("row_id")
+            if row_id is not None:
+                missing_ids.append(int(row_id))
+
+    return TableSyncReport(
+        attempted=len(rows),
+        upserted=len(rows) - len(errors),
+        missing_row_ids=missing_ids,
+        retry_batches=_build_retry_batches(missing_ids),
+        errors=error_messages,
+    )
+
+
+def _data_integrity_ok(reports: List[TableSyncReport]) -> bool:
+    return all(
+        report.upserted == report.attempted and not report.missing_row_ids for report in reports
+    )
+
+
+def _merge_sales(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
+    if not rows:
+        return _empty_report()
     sql = """
         MERGE INTO BACKUP_VENDHQ_SALES tgt
         USING (
@@ -216,13 +285,12 @@ def _merge_sales(cursor, rows: List[Dict[str, Any]]) -> int:
             src.VERSION, src.REGION, src.CUSTOMER_TYPE
         )
     """
-    cursor.executemany(sql, rows)
-    return len(rows)
+    return _merge_rows(cursor, rows, sql)
 
 
-def _merge_payments(cursor, rows: List[Dict[str, Any]]) -> int:
+def _merge_payments(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
-        return 0
+        return _empty_report()
     sql = """
         MERGE INTO BACKUP_VENDHQ_PAYMENTS tgt
         USING (
@@ -260,13 +328,12 @@ def _merge_payments(cursor, rows: List[Dict[str, Any]]) -> int:
             src.PAYMENT_TYPE, src.PAYMENT_DATE, src.DELETED_AT, src.REGION, src.SALE_DATE
         )
     """
-    cursor.executemany(sql, rows)
-    return len(rows)
+    return _merge_rows(cursor, rows, sql)
 
 
-def _merge_lines(cursor, rows: List[Dict[str, Any]]) -> int:
+def _merge_lines(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
-        return 0
+        return _empty_report()
     sql = """
         MERGE INTO BACKUP_VENDHQ_LINE_ITEMS tgt
         USING (
@@ -314,23 +381,26 @@ def _merge_lines(cursor, rows: List[Dict[str, Any]]) -> int:
             src.REGION, src.SALE_DATE, src.TAX_NAME, src.INV_UPLOAD_QNT_FLAG
         )
     """
-    cursor.executemany(sql, rows)
-    return len(rows)
+    return _merge_rows(cursor, rows, sql)
 
 
-async def _write_to_oracle(settings: Settings, orders: List[Dict[str, Any]]) -> Tuple[int, int, int]:
+async def _write_to_oracle(
+    settings: Settings, orders: List[Dict[str, Any]]
+) -> Tuple[TableSyncReport, TableSyncReport, TableSyncReport]:
     sales_rows = _build_sales_rows(orders, settings)
     payment_rows = _build_payment_rows(orders, settings)
     line_rows = _build_line_rows(orders, settings)
 
     async with get_connection(settings) as conn:
         cursor = await asyncio.to_thread(conn.cursor)
-        sales_count = await asyncio.to_thread(_merge_sales, cursor, sales_rows)
-        payments_count = await asyncio.to_thread(_merge_payments, cursor, payment_rows)
-        lines_count = await asyncio.to_thread(_merge_lines, cursor, line_rows)
-        await asyncio.to_thread(conn.commit)
-        await asyncio.to_thread(cursor.close)
-        return sales_count, payments_count, lines_count
+        try:
+            sales_report = await asyncio.to_thread(_merge_sales, cursor, sales_rows)
+            payments_report = await asyncio.to_thread(_merge_payments, cursor, payment_rows)
+            lines_report = await asyncio.to_thread(_merge_lines, cursor, line_rows)
+            await asyncio.to_thread(conn.commit)
+            return sales_report, payments_report, lines_report
+        finally:
+            await asyncio.to_thread(cursor.close)
 
 
 async def sync_orders(
@@ -341,6 +411,8 @@ async def sync_orders(
     page_limit: int,
 ) -> SyncSummary:
     _ensure_config(settings)
+    oracle_target = describe_target(settings)
+    oracle_connected = await test_connection(settings)
     orders = await odoo_client.fetch_orders(
         settings=settings,
         start_date=start_date,
@@ -350,24 +422,48 @@ async def sync_orders(
     )
 
     if not orders:
+        empty_sales = _empty_report()
+        empty_payments = _empty_report()
+        empty_lines = _empty_report()
         return SyncSummary(
             orders_fetched=0,
-            sales_upserted=0,
-            payments_upserted=0,
-            line_items_upserted=0,
+            sales_upserted=empty_sales.upserted,
+            payments_upserted=empty_payments.upserted,
+            line_items_upserted=empty_lines.upserted,
+            sales_report=empty_sales,
+            payments_report=empty_payments,
+            line_items_report=empty_lines,
+            data_integrity_ok=True,
+            oracle=ConnectionReport(
+                connected=oracle_connected,
+                target=oracle_target,
+                user=settings.oracle_user,
+            ),
         )
 
     try:
-        sales_count, payments_count, lines_count = await _write_to_oracle(settings, orders)
+        sales_report, payments_report, lines_report = await _write_to_oracle(settings, orders)
+        oracle_connected = True
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to write to Oracle: {exc}",
+            detail=f"Failed to write to Oracle ({oracle_target}): {exc}",
         ) from exc
+
+    reports = [sales_report, payments_report, lines_report]
 
     return SyncSummary(
         orders_fetched=len(orders),
-        sales_upserted=sales_count,
-        payments_upserted=payments_count,
-        line_items_upserted=lines_count,
+        sales_upserted=sales_report.upserted,
+        payments_upserted=payments_report.upserted,
+        line_items_upserted=lines_report.upserted,
+        sales_report=sales_report,
+        payments_report=payments_report,
+        line_items_report=lines_report,
+        data_integrity_ok=_data_integrity_ok(reports),
+        oracle=ConnectionReport(
+            connected=oracle_connected,
+            target=oracle_target,
+            user=settings.oracle_user,
+        ),
     )
