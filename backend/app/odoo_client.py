@@ -230,6 +230,9 @@ async def fetch_orders(
             # ── Parallel fetch with semaphore to cap concurrent requests ──
             semaphore = asyncio.Semaphore(max_concurrent)
             fetched_lock = asyncio.Lock()
+            # Shared counter tracked independently so parallel tasks don't race
+            # on reading/writing the not-yet-extended `orders` list.
+            parallel_fetched = [len(orders)]  # starts with page-0 count
 
             async def _guarded_fetch(offset: int) -> Tuple[int, List[Dict[str, Any]]]:
                 async with semaphore:
@@ -237,7 +240,8 @@ async def fetch_orders(
                         client, settings.odoo_api_url, headers, base_params, offset, limit
                     )
                     async with fetched_lock:
-                        _progress.update_fetched(len(orders) + len(results))
+                        parallel_fetched[0] += len(results)
+                        _progress.update_fetched(parallel_fetched[0])
                     return offset, results
 
             tasks = [_guarded_fetch(off) for off in offsets]
@@ -248,7 +252,6 @@ async def fetch_orders(
             for _offset, page_records in pages:
                 orders.extend(page_records)
                 last_page_size = len(page_records)
-            _progress.update_fetched(len(orders))
 
             # ── Continuation sweep ────────────────────────────────────────────
             # If the API's reported `total` was stale/understated, the last

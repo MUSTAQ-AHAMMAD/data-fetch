@@ -141,7 +141,12 @@ function ClearRecordsPanel({ apiRoot }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        const text = await res.text()
+        let detail = text
+        try { detail = JSON.parse(text)?.detail || text } catch (_) {}
+        throw new Error(`Failed to clear records: ${detail}`)
+      }
       const data = await res.json()
       setClearResult(data.deleted)
     } catch (err) {

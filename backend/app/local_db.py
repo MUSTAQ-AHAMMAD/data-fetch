@@ -407,7 +407,7 @@ async def delete_records_by_date(
         for table_key in tables:
             if table_key not in _TABLE_TO_DB:
                 raise ValueError(f"Invalid table: {table_key!r}")
-            db_table = _TABLE_TO_DB[table_key]
+            db_table = _TABLE_TO_DB[table_key]  # safe: value comes from a hardcoded allow-list
             date_col = _TABLE_DATE_COL[db_table]
             params: list = []
             clauses = []
