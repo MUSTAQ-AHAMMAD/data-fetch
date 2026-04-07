@@ -66,11 +66,15 @@ async def cancel_sync() -> dict:
 @app.post("/sync", response_model=SyncSummary)
 async def trigger_sync(request: SyncRequest, settings: Settings = Depends(get_settings)) -> SyncSummary:
     page_limit = request.limit or settings.page_limit
+    # Apply the configured minimum order ID floor when the caller does not
+    # explicitly provide one, so that odoo_order_min_id from .env/.config is
+    # always respected.
+    order_id_gt = request.order_id_gt if request.order_id_gt is not None else settings.odoo_order_min_id
     summary = await sync_orders(
         settings=settings,
         start_date=request.start_date,
         end_date=request.end_date,
-        order_id_gt=request.order_id_gt,
+        order_id_gt=order_id_gt,
         page_limit=page_limit,
         pos_id=request.pos_id,
         company_id=request.company_id,
