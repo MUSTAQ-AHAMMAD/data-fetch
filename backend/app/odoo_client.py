@@ -237,8 +237,42 @@ async def fetch_orders(
             pages = await asyncio.gather(*tasks)
 
             # asyncio.gather preserves task order, which mirrors offsets order.
+            last_page_size = 0
             for _offset, page_records in pages:
                 orders.extend(page_records)
+                last_page_size = len(page_records)
+
+            # ── Continuation sweep ────────────────────────────────────────────
+            # If the API's reported `total` was stale/understated, the last
+            # parallel page may be full (== limit), meaning there are additional
+            # records beyond the calculated offsets.  We continue fetching
+            # sequentially until we see a partial or empty page, guaranteeing
+            # 100 % coverage regardless of total accuracy.
+            if last_page_size == limit:
+                continuation_offset = offsets[-1] + limit
+                logger.warning(
+                    "Last parallel page was full (%d records at offset %d). "
+                    "API total=%s may be understated — continuing sequentially to collect remaining records.",
+                    limit,
+                    offsets[-1],
+                    total,
+                )
+                while True:
+                    if _cancel.is_cancelled():
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail="Sync cancelled during order fetch.",
+                        )
+                    extra_results, _ = await _fetch_page(
+                        client, settings.odoo_api_url, headers, base_params,
+                        continuation_offset, limit,
+                    )
+                    if not extra_results:
+                        break
+                    orders.extend(extra_results)
+                    continuation_offset += len(extra_results)
+                    if len(extra_results) < limit:
+                        break
         else:
             # ── Sequential fallback when total is unknown ──
             offset = limit
@@ -290,6 +324,28 @@ async def fetch_orders(
             len(unique_orders),
         )
     orders = unique_orders
+
+    # ── Count verification ───────────────────────────────────────────────────
+    # Compare the number of unique orders collected against the total that the
+    # API reported on page 0.  A mismatch is logged as a warning so that it is
+    # always visible in the logs, even when the sync otherwise succeeds.
+    if total is not None and len(orders) != total:
+        logger.warning(
+            "Count mismatch after deduplication: API reported total=%d but collected %d unique orders "
+            "(%s – %s). This may indicate records were added/removed mid-fetch or the API total was inaccurate.",
+            total,
+            len(orders),
+            _format_date(start_date),
+            _format_date(end_date),
+        )
+    elif total is not None:
+        logger.info(
+            "Count verified: collected %d unique orders matches API reported total=%d (%s – %s).",
+            len(orders),
+            total,
+            _format_date(start_date),
+            _format_date(end_date),
+        )
 
     logger.info(
         "Odoo fetch complete: %d unique orders collected (%s – %s)",
