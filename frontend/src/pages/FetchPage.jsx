@@ -181,7 +181,7 @@ export default function FetchPage() {
     const status = progress.status
     if (status === prevStatusRef.current) return
     prevStatusRef.current = status
-    const now = new Date().toLocaleTimeString()
+    const now = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
     if (status === 'storing') {
       setTimelineEvents((prev) => [
         ...prev,
@@ -258,7 +258,7 @@ export default function FetchPage() {
     setProgress({ status: 'fetching', fetched: 0, total: null, error: null })
     prevStatusRef.current = null
 
-    const now = new Date().toLocaleTimeString()
+    const now = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
     setTimelineEvents([{ label: '⟳ Fetch started', time: now, active: true, done: false }])
     startTimer()
 

@@ -143,7 +143,7 @@ export default function PushPage() {
     setPushStatus({ tone: 'busy', message: 'Pushing to Oracle…' })
     setSummary(null)
 
-    const now = new Date().toLocaleTimeString()
+    const now = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
     setTimelineEvents([{ label: '⟳ Push started', time: now, active: true, done: false }])
     startTimer()
 
@@ -168,7 +168,7 @@ export default function PushPage() {
           ? `Push complete. ${pushed} rows sent to Oracle.`
           : 'Oracle not reachable. Check connection settings.',
       })
-      const doneTime = new Date().toLocaleTimeString()
+      const doneTime = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
       setTimelineEvents((prev) => {
         const updated = prev.map((e) => ({ ...e, active: false, done: true }))
         return [
@@ -179,7 +179,7 @@ export default function PushPage() {
       await loadCounts()
     } catch (err) {
       setPushStatus({ tone: 'error', message: err.message })
-      const errTime = new Date().toLocaleTimeString()
+      const errTime = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
       setTimelineEvents((prev) => [
         ...prev,
         { label: `⚠ ${err.message}`, time: errTime, active: false, done: true, error: true },
