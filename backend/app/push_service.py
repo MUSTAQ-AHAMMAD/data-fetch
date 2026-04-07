@@ -303,6 +303,10 @@ async def push_to_oracle(
             finally:
                 await asyncio.to_thread(cursor.close)
     except HTTPException:
+        # HTTPExceptions are already properly formatted API responses
+        # (correct status code + JSON body); let them pass through so
+        # FastAPI's ExceptionMiddleware handles them and CORSMiddleware
+        # can attach its headers normally.
         raise
     except Exception as exc:
         raise HTTPException(
