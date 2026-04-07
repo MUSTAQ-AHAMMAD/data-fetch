@@ -16,17 +16,17 @@ function FilterBar({ filters, onChange, onSearch, loading }) {
     <div className="filter-bar">
       <div className="filter-fields">
         <label className="field">
-          <span>Start date</span>
+          <span>Start date/time</span>
           <input
-            type="date"
+            type="datetime-local"
             value={filters.start_date}
             onChange={(e) => onChange('start_date', e.target.value)}
           />
         </label>
         <label className="field">
-          <span>End date</span>
+          <span>End date/time</span>
           <input
-            type="date"
+            type="datetime-local"
             value={filters.end_date}
             onChange={(e) => onChange('end_date', e.target.value)}
           />
@@ -147,7 +147,7 @@ export default function DataPage() {
     setError(null)
     const params = new URLSearchParams({ limit: PAGE_SIZE, offset: currentOffset })
     if (filters.start_date) params.set('start_date', filters.start_date)
-    if (filters.end_date) params.set('end_date', filters.end_date + 'T23:59:59')
+    if (filters.end_date) params.set('end_date', filters.end_date)
     if (filters.invoice_number) params.set('invoice_number', filters.invoice_number)
     if (filters.outlet_name) params.set('outlet_name', filters.outlet_name)
     if (filters.synced !== '') params.set('synced', filters.synced)
