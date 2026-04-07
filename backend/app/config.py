@@ -24,7 +24,12 @@ class Settings(BaseSettings):
     allowed_origins: List[str] = ["http://localhost:5173"]
     region: str = "SA"
     request_timeout_seconds: float = 30.0
-    page_limit: int = 100
+    # 500 records/page reduces round-trips by ~5× vs the old default of 100.
+    # Tune down if the Odoo server enforces a lower maximum page size.
+    page_limit: int = 500
+    # Maximum number of concurrent page requests sent to Odoo in parallel.
+    # Raise for faster fetches on a capable server; lower to avoid rate-limiting.
+    max_concurrent_pages: int = 5
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -72,6 +73,95 @@ def _extract_results(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]
     return results, total
 
 
+async def _fetch_page(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: Dict[str, str],
+    base_params: Dict[str, Any],
+    offset: int,
+    limit: int,
+    max_retries: int = 3,
+) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+    """Fetch a single page from the Odoo API with retry-with-backoff.
+
+    Returns (records, total) where *total* may be None if the API does not
+    report it.  Raises HTTPException on unrecoverable errors.
+    """
+    if _cancel.is_cancelled():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sync cancelled during order fetch.",
+        )
+
+    params = {**base_params, "offset": offset, "limit": limit}
+    request = client.build_request("GET", url, headers=headers, params=params)
+    logger.info("Fetching Odoo orders: url=%s", request.url)
+
+    response: Optional[httpx.Response] = None
+    for attempt in range(max_retries):
+        try:
+            response = await client.send(request)
+            response.raise_for_status()
+            break
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code >= 500 and attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Odoo API returned %s on attempt %d/%d; retrying in %ds. URL: %s",
+                    exc.response.status_code,
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                    request.url,
+                )
+                await asyncio.sleep(wait)
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Odoo API error {exc.response.status_code}: {exc.response.text}",
+            ) from exc
+        except httpx.HTTPError as exc:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning(
+                    "Odoo API request failed on attempt %d/%d; retrying in %ds. Error: %s",
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                    exc,
+                )
+                await asyncio.sleep(wait)
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Odoo API request failed: {exc}",
+            ) from exc
+
+    if response is None:  # pragma: no cover — all retries raised above
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Odoo API request failed: no response received.",
+        )
+
+    payload = response.json()
+    try:
+        page_results, total = _extract_results(payload)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Unexpected Odoo response structure. Keys: %s. Error: %s",
+            list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected Odoo API response format: {exc}",
+        ) from exc
+
+    return page_results, total
+
+
 async def fetch_orders(
     settings: Settings,
     start_date: datetime,
@@ -83,118 +173,90 @@ async def fetch_orders(
 ) -> List[Dict[str, Any]]:
     headers = {"x-api-key": settings.odoo_api_key}
     limit = page_limit or settings.page_limit
-    offset = 0
-    orders: List[Dict[str, Any]] = []
+    max_concurrent = settings.max_concurrent_pages
 
-    _max_retries = 3
+    base_params: Dict[str, Any] = {
+        "start_date": _format_date(start_date),
+        "end_date": _format_date(end_date),
+        "order": "id asc",
+    }
+    if pos_id is not None:
+        base_params["pos_id"] = pos_id
+    if company_id is not None:
+        base_params["company_id"] = company_id
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-        while True:
-            if _cancel.is_cancelled():
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Sync cancelled during order fetch.",
-                )
-            params: Dict[str, Any] = {
-                "start_date": _format_date(start_date),
-                "end_date": _format_date(end_date),
-                "order": "id asc",
-                "limit": limit,
-                "offset": offset,
-            }
-            if pos_id is not None:
-                params["pos_id"] = pos_id
-            if company_id is not None:
-                params["company_id"] = company_id
+        # ── Page 0: always fetched first so we can read the total count ──
+        page0_results, total = await _fetch_page(
+            client, settings.odoo_api_url, headers, base_params, offset=0, limit=limit
+        )
 
-            # Build a prepared request so we can log the final URL (with
-            # percent-encoded query string) before sending it.
-            request = client.build_request(
-                "GET", settings.odoo_api_url, headers=headers, params=params
+        if not page0_results:
+            # Log the zero-result case (mirrors old behaviour)
+            logger.warning(
+                "Odoo returned zero results for date range %s – %s (reported total=%s).",
+                _format_date(start_date),
+                _format_date(end_date),
+                total,
             )
+            return []
+
+        orders: List[Dict[str, Any]] = list(page0_results)
+
+        # ── Early exit: everything fit in the first page ──
+        if len(page0_results) < limit:
             logger.info(
-                "Fetching Odoo orders: url=%s",
-                request.url,
+                "Odoo fetch complete (single page): %d orders (%s – %s)",
+                len(orders),
+                _format_date(start_date),
+                _format_date(end_date),
             )
+            return orders
 
-            response = None
-            for attempt in range(_max_retries):
-                try:
-                    response = await client.send(request)
-                    response.raise_for_status()
+        # ── Determine remaining pages ──
+        if total is not None and total > limit:
+            # We know exactly how many more pages we need.
+            remaining_pages = math.ceil((total - limit) / limit)
+            offsets = [limit + i * limit for i in range(remaining_pages)]
+        else:
+            # total unknown — fall back to sequential pagination (old behaviour).
+            offsets = None
+
+        if offsets is not None:
+            # ── Parallel fetch with semaphore to cap concurrent requests ──
+            semaphore = asyncio.Semaphore(max_concurrent)
+
+            async def _guarded_fetch(offset: int) -> Tuple[int, List[Dict[str, Any]]]:
+                async with semaphore:
+                    results, _ = await _fetch_page(
+                        client, settings.odoo_api_url, headers, base_params, offset, limit
+                    )
+                    return offset, results
+
+            tasks = [_guarded_fetch(off) for off in offsets]
+            pages = await asyncio.gather(*tasks)
+
+            # asyncio.gather preserves task order, which mirrors offsets order.
+            for _offset, page_records in pages:
+                orders.extend(page_records)
+        else:
+            # ── Sequential fallback when total is unknown ──
+            offset = limit
+            while True:
+                if _cancel.is_cancelled():
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Sync cancelled during order fetch.",
+                    )
+                page_results, _ = await _fetch_page(
+                    client, settings.odoo_api_url, headers, base_params, offset, limit
+                )
+                if not page_results:
                     break
-                except httpx.HTTPStatusError as exc:
-                    if exc.response.status_code >= 500 and attempt < _max_retries - 1:
-                        wait = 2 ** attempt
-                        logger.warning(
-                            "Odoo API returned %s on attempt %d/%d; retrying in %ds. URL: %s",
-                            exc.response.status_code,
-                            attempt + 1,
-                            _max_retries,
-                            wait,
-                            request.url,
-                        )
-                        await asyncio.sleep(wait)
-                        continue
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=f"Odoo API error {exc.response.status_code}: {exc.response.text}",
-                    ) from exc
-                except httpx.HTTPError as exc:
-                    if attempt < _max_retries - 1:
-                        wait = 2 ** attempt
-                        logger.warning(
-                            "Odoo API request failed on attempt %d/%d; retrying in %ds. Error: %s",
-                            attempt + 1,
-                            _max_retries,
-                            wait,
-                            exc,
-                        )
-                        await asyncio.sleep(wait)
-                        continue
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=f"Odoo API request failed: {exc}",
-                    ) from exc
-
-            payload = response.json()
-            try:
-                page_results, total = _extract_results(payload)
-            except HTTPException:
-                raise
-            except Exception as exc:
-                logger.error(
-                    "Unexpected Odoo response structure. Keys: %s. Error: %s",
-                    list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
-                    exc,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Unexpected Odoo API response format: {exc}",
-                ) from exc
-
-            if not page_results and offset == 0:
-                # Log the full response body (truncated) so operators can see
-                # exactly what Odoo returned and why no records came back.
-                raw_body = response.text[:2000]
-                logger.warning(
-                    "Odoo returned zero results for date range %s – %s "
-                    "(reported total=%s). "
-                    "Request URL: %s | Response (first 2000 chars): %s",
-                    _format_date(start_date),
-                    _format_date(end_date),
-                    total,
-                    request.url,
-                    raw_body,
-                )
-
-            orders.extend(page_results)
-
-            offset += len(page_results)
-            if not page_results:
-                break
-            if len(page_results) < limit:
-                break
+                orders.extend(page_results)
+                offset += len(page_results)
+                if len(page_results) < limit:
+                    break
 
     logger.info(
         "Odoo fetch complete: %d orders collected (%s – %s)",
@@ -203,3 +265,4 @@ async def fetch_orders(
         _format_date(end_date),
     )
     return orders
+
