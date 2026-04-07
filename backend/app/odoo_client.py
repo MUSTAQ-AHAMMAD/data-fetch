@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -85,6 +86,8 @@ async def fetch_orders(
     offset = 0
     orders: List[Dict[str, Any]] = []
 
+    _max_retries = 3
+
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         while True:
             if _cancel.is_cancelled():
@@ -95,12 +98,10 @@ async def fetch_orders(
             params: Dict[str, Any] = {
                 "start_date": _format_date(start_date),
                 "end_date": _format_date(end_date),
-                "order_by": "id ASC",
+                "order": "id asc",
                 "limit": limit,
                 "offset": offset,
             }
-            if order_id_gt is not None:
-                params["order_id"] = f">{order_id_gt}"
             if pos_id is not None:
                 params["pos_id"] = pos_id
             if company_id is not None:
@@ -116,19 +117,45 @@ async def fetch_orders(
                 request.url,
             )
 
-            try:
-                response = await client.send(request)
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Odoo API error {exc.response.status_code}: {exc.response.text}",
-                ) from exc
-            except httpx.HTTPError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Odoo API request failed: {exc}",
-                ) from exc
+            response = None
+            for attempt in range(_max_retries):
+                try:
+                    response = await client.send(request)
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code >= 500 and attempt < _max_retries - 1:
+                        wait = 2 ** attempt
+                        logger.warning(
+                            "Odoo API returned %s on attempt %d/%d; retrying in %ds. URL: %s",
+                            exc.response.status_code,
+                            attempt + 1,
+                            _max_retries,
+                            wait,
+                            request.url,
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Odoo API error {exc.response.status_code}: {exc.response.text}",
+                    ) from exc
+                except httpx.HTTPError as exc:
+                    if attempt < _max_retries - 1:
+                        wait = 2 ** attempt
+                        logger.warning(
+                            "Odoo API request failed on attempt %d/%d; retrying in %ds. Error: %s",
+                            attempt + 1,
+                            _max_retries,
+                            wait,
+                            exc,
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Odoo API request failed: {exc}",
+                    ) from exc
 
             payload = response.json()
             try:
