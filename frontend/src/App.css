@@ -126,7 +126,12 @@
 }
 
 .field-time {
-  flex: 0 0 130px;
+  flex: 0 0 160px;
+}
+
+/* Force 24-hour display for time inputs in WebKit/Chromium browsers */
+input[type="time"]::-webkit-datetime-edit-ampm-field {
+  display: none;
 }
 
 @media (max-width: 480px) {
