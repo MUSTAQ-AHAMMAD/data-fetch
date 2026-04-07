@@ -141,9 +141,9 @@ function FetchProgressBar({ progress, elapsedSeconds }) {
 
 export default function FetchPage() {
   const [startDate, setStartDate] = useState(() => localDate(-3))
-  const [startTime, setStartTime] = useState('00:00')
+  const [startTime, setStartTime] = useState('00:00:00')
   const [endDate, setEndDate] = useState(() => localDate())
-  const [endTime, setEndTime] = useState('23:59')
+  const [endTime, setEndTime] = useState('23:59:59')
   const [posId, setPosId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [orderFloor, setOrderFloor] = useState('')
@@ -361,6 +361,8 @@ export default function FetchPage() {
                 <span>Start time</span>
                 <input
                   type="time"
+                  lang="en-GB"
+                  step="1"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
                   required
@@ -381,6 +383,8 @@ export default function FetchPage() {
                 <span>End time</span>
                 <input
                   type="time"
+                  lang="en-GB"
+                  step="1"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   required
