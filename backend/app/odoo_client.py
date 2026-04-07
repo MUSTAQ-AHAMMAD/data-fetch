@@ -256,35 +256,60 @@ async def fetch_orders(
             # ── Continuation sweep ────────────────────────────────────────────
             # If the API's reported `total` was stale/understated, the last
             # parallel page may be full (== limit), meaning there are additional
-            # records beyond the calculated offsets.  We continue fetching
-            # sequentially until we see a partial or empty page, guaranteeing
-            # 100 % coverage regardless of total accuracy.
+            # records beyond the calculated offsets.  We continue fetching in
+            # parallel batches (same concurrency cap as the main phase) until we
+            # see a partial or empty page, guaranteeing 100 % coverage regardless
+            # of total accuracy.
             if last_page_size == limit:
                 continuation_offset = offsets[-1] + limit
                 logger.warning(
                     "Last parallel page was full (%d records at offset %d). "
-                    "API total=%s may be understated — continuing sequentially to collect remaining records.",
+                    "API total=%s may be understated — continuing in parallel batches to collect remaining records.",
                     limit,
                     offsets[-1],
                     total,
                 )
-                while True:
+                cont_semaphore = asyncio.Semaphore(max_concurrent)
+                cont_done = False
+                while not cont_done:
                     if _cancel.is_cancelled():
                         raise HTTPException(
                             status_code=status.HTTP_409_CONFLICT,
                             detail="Sync cancelled during order fetch.",
                         )
-                    extra_results, _ = await _fetch_page(
-                        client, settings.odoo_api_url, headers, base_params,
-                        continuation_offset, limit,
+                    # Probe up to max_concurrent pages ahead in parallel.
+                    batch_offsets = [
+                        continuation_offset + i * limit for i in range(max_concurrent)
+                    ]
+                    logger.info(
+                        "Continuation batch: fetching offsets %s – %s",
+                        batch_offsets[0],
+                        batch_offsets[-1],
                     )
-                    if not extra_results:
-                        break
-                    orders.extend(extra_results)
-                    _progress.update_fetched(len(orders))
-                    continuation_offset += len(extra_results)
-                    if len(extra_results) < limit:
-                        break
+
+                    async def _cont_fetch(off: int) -> Tuple[int, List[Dict[str, Any]]]:
+                        async with cont_semaphore:
+                            results, _ = await _fetch_page(
+                                client, settings.odoo_api_url, headers, base_params, off, limit
+                            )
+                            return off, results
+
+                    # asyncio.gather preserves task order, but sort explicitly so
+                    # records are appended in ascending offset order regardless.
+                    batch_pages = sorted(
+                        await asyncio.gather(*[_cont_fetch(off) for off in batch_offsets]),
+                        key=lambda x: x[0],
+                    )
+                    for _off, batch_records in batch_pages:
+                        if not batch_records:
+                            cont_done = True
+                            break
+                        orders.extend(batch_records)
+                        _progress.update_fetched(len(orders))
+                        continuation_offset = _off + limit
+                        if len(batch_records) < limit:
+                            cont_done = True
+                            break
         else:
             # ── Sequential fallback when total is unknown ──
             offset = limit
