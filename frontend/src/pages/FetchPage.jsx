@@ -26,9 +26,10 @@ function SyncTimeline({ events }) {
   )
 }
 
-// Return today's date as YYYY-MM-DD (local time, no UTC conversion).
-const defaultDate = () => {
+// Return a date as YYYY-MM-DD (local time, no UTC conversion), offset by `offsetDays`.
+const localDate = (offsetDays = 0) => {
   const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
@@ -139,8 +140,8 @@ function FetchProgressBar({ progress, elapsedSeconds }) {
 }
 
 export default function FetchPage() {
-  const [startDate, setStartDate] = useState(defaultDate)
-  const [endDate, setEndDate] = useState(defaultDate)
+  const [startDate, setStartDate] = useState(() => localDate(-3))
+  const [endDate, setEndDate] = useState(() => localDate())
   const [posId, setPosId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [orderFloor, setOrderFloor] = useState('')

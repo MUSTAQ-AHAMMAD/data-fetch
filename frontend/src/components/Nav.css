@@ -26,6 +26,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1;
 }
 
 .nav-link {
@@ -47,4 +48,30 @@
 .nav-link.active {
   background: rgba(255, 255, 255, 0.18);
   color: #fff;
+}
+
+/* ── Live clock ─────────────────────────────────────────────────────────────── */
+
+.nav-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.nav-clock-date {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+.nav-clock-time {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffb703;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
