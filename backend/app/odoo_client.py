@@ -8,6 +8,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from . import cancel as _cancel
+from . import progress as _progress
 from .config import Settings
 
 logger = logging.getLogger(__name__)
@@ -201,7 +202,10 @@ async def fetch_orders(
             )
             return []
 
+        # Initialise progress tracking now that we have the expected total.
+        _progress.start_fetch(total)
         orders: List[Dict[str, Any]] = list(page0_results)
+        _progress.update_fetched(len(orders))
 
         # ── Early exit: everything fit in the first page ──
         if len(page0_results) < limit:
@@ -225,12 +229,15 @@ async def fetch_orders(
         if offsets is not None:
             # ── Parallel fetch with semaphore to cap concurrent requests ──
             semaphore = asyncio.Semaphore(max_concurrent)
+            fetched_lock = asyncio.Lock()
 
             async def _guarded_fetch(offset: int) -> Tuple[int, List[Dict[str, Any]]]:
                 async with semaphore:
                     results, _ = await _fetch_page(
                         client, settings.odoo_api_url, headers, base_params, offset, limit
                     )
+                    async with fetched_lock:
+                        _progress.update_fetched(len(orders) + len(results))
                     return offset, results
 
             tasks = [_guarded_fetch(off) for off in offsets]
@@ -241,6 +248,7 @@ async def fetch_orders(
             for _offset, page_records in pages:
                 orders.extend(page_records)
                 last_page_size = len(page_records)
+            _progress.update_fetched(len(orders))
 
             # ── Continuation sweep ────────────────────────────────────────────
             # If the API's reported `total` was stale/understated, the last
@@ -270,6 +278,7 @@ async def fetch_orders(
                     if not extra_results:
                         break
                     orders.extend(extra_results)
+                    _progress.update_fetched(len(orders))
                     continuation_offset += len(extra_results)
                     if len(extra_results) < limit:
                         break
@@ -288,6 +297,7 @@ async def fetch_orders(
                 if not page_results:
                     break
                 orders.extend(page_results)
+                _progress.update_fetched(len(orders))
                 offset += len(page_results)
                 if len(page_results) < limit:
                     break

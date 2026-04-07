@@ -375,3 +375,52 @@ async def count_unsynced(settings: Settings) -> Dict[str, int]:
             row = await cur.fetchone()
             line_items = row[0] if row else 0
     return {"sales": sales, "payments": payments, "line_items": line_items}
+
+
+_TABLE_TO_DB: Dict[str, str] = {
+    "sales": "TEST_BACKUP_VENDHQ_SALES",
+    "payments": "TEST_BACKUP_VENDHQ_PAYMENTS",
+    "line_items": "TEST_BACKUP_VENDHQ_LINE_ITEMS",
+}
+
+_TABLE_DATE_COL: Dict[str, str] = {
+    "TEST_BACKUP_VENDHQ_SALES": "SALE_DATE",
+    "TEST_BACKUP_VENDHQ_PAYMENTS": "SALE_DATE",
+    "TEST_BACKUP_VENDHQ_LINE_ITEMS": "SALE_DATE",
+}
+
+
+async def delete_records_by_date(
+    settings: Settings,
+    tables: List[str],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Dict[str, int]:
+    """Delete rows from the specified tables within the optional date range.
+
+    Returns a dict mapping table key (e.g. "sales") to number of rows deleted.
+    If neither start_date nor end_date is provided all rows in each table are deleted.
+    """
+    deleted: Dict[str, int] = {}
+    path = _get_db_path(settings)
+    async with aiosqlite.connect(path) as db:
+        for table_key in tables:
+            if table_key not in _TABLE_TO_DB:
+                raise ValueError(f"Invalid table: {table_key!r}")
+            db_table = _TABLE_TO_DB[table_key]
+            date_col = _TABLE_DATE_COL[db_table]
+            params: list = []
+            clauses = []
+            if start_date:
+                clauses.append(f"{date_col} >= ?")
+                params.append(start_date)
+            if end_date:
+                clauses.append(f"{date_col} <= ?")
+                params.append(end_date)
+            where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+            sql = f"DELETE FROM {db_table}{where}"
+            cursor = await db.execute(sql, params)
+            deleted[table_key] = cursor.rowcount
+        await db.commit()
+    return deleted
+

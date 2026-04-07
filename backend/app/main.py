@@ -2,16 +2,20 @@ from fastapi import Depends, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import cancel as _cancel
+from . import progress as _progress
 from .config import Settings
 from .db import describe_target, test_connection
-from .local_db import count_unsynced, init_db, query_line_items, query_payments, query_sales
+from .local_db import count_unsynced, delete_records_by_date, init_db, query_line_items, query_payments, query_sales
 from .push_service import push_to_oracle
 from .schemas import (
+    ClearRequest,
+    ClearResponse,
     HealthResponse,
     LocalDataQuery,
     LocalDataResponse,
     PushRequest,
     PushSummary,
+    SyncProgress,
     SyncRequest,
     SyncSummary,
     UnsyncedCount,
@@ -61,6 +65,11 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
 async def cancel_sync() -> dict:
     _cancel.request_cancel()
     return {"cancelled": True}
+
+
+@app.get("/sync/progress", response_model=SyncProgress)
+async def sync_progress() -> SyncProgress:
+    return SyncProgress(**_progress.get_state())
 
 
 @app.post("/sync", response_model=SyncSummary)
@@ -156,6 +165,17 @@ async def local_line_items(
 async def local_unsynced_count(settings: Settings = Depends(get_settings)) -> UnsyncedCount:
     counts = await count_unsynced(settings)
     return UnsyncedCount(**counts)
+
+
+@app.post("/local/clear", response_model=ClearResponse)
+async def local_clear(request: ClearRequest, settings: Settings = Depends(get_settings)) -> ClearResponse:
+    deleted = await delete_records_by_date(
+        settings,
+        tables=request.tables,
+        start_date=request.start_date,
+        end_date=request.end_date,
+    )
+    return ClearResponse(deleted=deleted)
 
 
 # ── Oracle push endpoints ─────────────────────────────────────────────────────

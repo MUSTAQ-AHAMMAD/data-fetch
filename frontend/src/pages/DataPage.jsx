@@ -101,6 +101,131 @@ function DataTable({ rows, columns }) {
   )
 }
 
+const TABLE_OPTIONS = [
+  { key: 'sales', label: 'Sales' },
+  { key: 'payments', label: 'Payments' },
+  { key: 'line_items', label: 'Line Items' },
+]
+
+function ClearRecordsPanel({ apiRoot }) {
+  const [clearStart, setClearStart] = useState('')
+  const [clearEnd, setClearEnd] = useState('')
+  const [selectedTables, setSelectedTables] = useState({ sales: true, payments: true, line_items: true })
+  const [clearing, setClearing] = useState(false)
+  const [clearResult, setClearResult] = useState(null)
+  const [clearError, setClearError] = useState(null)
+  const [confirmed, setConfirmed] = useState(false)
+
+  const toggleTable = (key) => {
+    setSelectedTables((prev) => ({ ...prev, [key]: !prev[key] }))
+    setConfirmed(false)
+  }
+
+  const tables = TABLE_OPTIONS.filter((t) => selectedTables[t.key]).map((t) => t.key)
+
+  const handleClear = async () => {
+    if (!confirmed) {
+      setConfirmed(true)
+      return
+    }
+    setClearing(true)
+    setClearResult(null)
+    setClearError(null)
+    setConfirmed(false)
+    try {
+      const body = { tables }
+      if (clearStart) body.start_date = clearStart
+      if (clearEnd) body.end_date = clearEnd
+      const res = await fetch(`${apiRoot}/local/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      setClearResult(data.deleted)
+    } catch (err) {
+      setClearError(err.message)
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const totalDeleted = clearResult ? Object.values(clearResult).reduce((a, b) => a + b, 0) : null
+
+  return (
+    <div className="clear-panel">
+      <div className="clear-panel-head">
+        <h3>🗑 Clear Database Records</h3>
+        <p className="clear-panel-desc">
+          Permanently delete rows from the local database within a date range.
+          Leave dates empty to delete <strong>all</strong> records in the selected tables.
+        </p>
+      </div>
+      <div className="clear-fields">
+        <label className="field">
+          <span>From date/time</span>
+          <input
+            type="datetime-local"
+            value={clearStart}
+            onChange={(e) => { setClearStart(e.target.value); setConfirmed(false) }}
+          />
+        </label>
+        <label className="field">
+          <span>To date/time</span>
+          <input
+            type="datetime-local"
+            value={clearEnd}
+            onChange={(e) => { setClearEnd(e.target.value); setConfirmed(false) }}
+          />
+        </label>
+        <div className="clear-table-checks">
+          <span className="clear-checks-label">Tables</span>
+          <div className="clear-checks">
+            {TABLE_OPTIONS.map((t) => (
+              <label key={t.key} className="check-option">
+                <input
+                  type="checkbox"
+                  checked={selectedTables[t.key]}
+                  onChange={() => toggleTable(t.key)}
+                />
+                {t.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      {clearError && <p className="warn">{clearError}</p>}
+      {clearResult && (
+        <div className="clear-result">
+          <span className="pill pill-warn">
+            {totalDeleted} row{totalDeleted !== 1 ? 's' : ''} deleted
+          </span>
+          <div className="clear-result-detail">
+            {Object.entries(clearResult).map(([tbl, cnt]) => (
+              <span key={tbl} className="clear-result-item">
+                {tbl}: <strong>{cnt}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      <button
+        className={`cta cta-sm ${confirmed ? 'cta-danger' : ''}`}
+        onClick={handleClear}
+        disabled={clearing || tables.length === 0}
+      >
+        {clearing ? 'Deleting…' : confirmed ? '⚠ Confirm delete' : 'Delete records'}
+      </button>
+      {confirmed && !clearing && (
+        <p className="warn" style={{ marginTop: '4px' }}>
+          Click again to confirm. This cannot be undone.
+        </p>
+      )}
+    </div>
+  )
+}
+
 const SALES_COLS = [
   'ROW_ID', 'INVOICE_NUMBER', 'OUTLET_NAME', 'REGISTER_NAME', 'SALE_DATE',
   'TOTAL_PRICE', 'TOTAL_TAX', 'TOTAL_PRICE_INCL_TAX', 'CUSTOMER_TYPE',
@@ -250,6 +375,8 @@ export default function DataPage() {
         </div>
 
         <DataTable rows={result.rows} columns={COLS_MAP[activeTab]} />
+
+        <ClearRecordsPanel apiRoot={apiRoot} />
       </main>
     </div>
   )

@@ -149,5 +149,31 @@ class PushSummary(BaseModel):
     oracle: "ConnectionReport"
 
 
+class SyncProgress(BaseModel):
+    status: str           # idle | fetching | storing | done | error
+    fetched: int
+    total: Optional[int]  # None if not yet known
+    error: Optional[str]
+
+
+class ClearRequest(BaseModel):
+    tables: List[str]
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+    @field_validator("tables")
+    @classmethod
+    def validate_tables(cls, value: List[str]) -> List[str]:
+        valid = {"sales", "payments", "line_items"}
+        for t in value:
+            if t not in valid:
+                raise ValueError(f"Invalid table '{t}'. Must be one of: {sorted(valid)}")
+        return value
+
+
+class ClearResponse(BaseModel):
+    deleted: Dict[str, int]
+
+
 SyncSummary.model_rebuild()
 PushSummary.model_rebuild()

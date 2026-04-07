@@ -179,3 +179,119 @@
 .null-cell {
   opacity: 0.3;
 }
+
+/* ── Clear Records Panel ───────────────────────────────────────────────── */
+
+.clear-panel {
+  margin-top: 2rem;
+  background: rgba(255, 107, 107, 0.05);
+  border: 1px solid rgba(255, 107, 107, 0.25);
+  border-radius: 14px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.clear-panel-head h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  color: #ff8a7a;
+}
+
+.clear-panel-desc {
+  margin: 0;
+  font-size: 0.83rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.clear-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.clear-fields .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 180px;
+}
+
+.clear-fields .field span {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.clear-fields input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #fff;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.clear-table-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.clear-checks-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.clear-checks {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.check-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  user-select: none;
+}
+
+.check-option input[type='checkbox'] {
+  accent-color: #ff8a7a;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.clear-result {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.clear-result-detail {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.clear-result-item {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.cta-danger {
+  background: linear-gradient(135deg, #cc4444, #992222) !important;
+  color: #fff !important;
+}
