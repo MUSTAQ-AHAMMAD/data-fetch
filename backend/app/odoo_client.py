@@ -214,7 +214,7 @@ async def fetch_orders(
         actual_page_size = len(page0_results)
 
         # ── Early exit: everything fit in the first page ──
-        if actual_page_size < limit or (total is not None and actual_page_size >= total):
+        if actual_page_size < limit or (total is not None and actual_page_size == total):
             logger.info(
                 "Odoo fetch complete (single page): %d orders (%s – %s)",
                 len(orders),

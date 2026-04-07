@@ -1,6 +1,9 @@
 """Module-level fetch progress tracking (single-sync model)."""
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 _state: dict = {
     "status": "idle",   # idle | fetching | storing | done | error
@@ -31,6 +34,11 @@ def update_fetched(count: int) -> None:
     """
     total = _state.get("total")
     if total is not None and count > total:
+        logger.debug(
+            "Capped fetched count from %d to total %d (API page size exceeds reported total).",
+            count,
+            total,
+        )
         count = total
     _state["fetched"] = count
 
