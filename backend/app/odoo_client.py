@@ -294,8 +294,11 @@ async def fetch_orders(
                             )
                             return off, results
 
-                    batch_pages = await asyncio.gather(
-                        *[_cont_fetch(off) for off in batch_offsets]
+                    # asyncio.gather preserves task order, but sort explicitly so
+                    # records are appended in ascending offset order regardless.
+                    batch_pages = sorted(
+                        await asyncio.gather(*[_cont_fetch(off) for off in batch_offsets]),
+                        key=lambda x: x[0],
                     )
                     for _off, batch_records in batch_pages:
                         if not batch_records:
