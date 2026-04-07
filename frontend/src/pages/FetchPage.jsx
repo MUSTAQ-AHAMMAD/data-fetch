@@ -109,7 +109,7 @@ export default function FetchPage() {
 
     const payload = {
       start_date: startDate.replace('T', ' ') + ':00',
-      end_date: endDate.replace('T', ' ') + ':00',
+      end_date: endDate.replace('T', ' ') + ':59',
       order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
