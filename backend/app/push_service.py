@@ -52,7 +52,6 @@ def _normalize_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "TOTAL_TAX": r["TOTAL_TAX"],
             "TOTAL_LOYALTY": r["TOTAL_LOYALTY"],
             "REGION": r["REGION"],
-            "CUSTOMER_TYPE": r["CUSTOMER_TYPE"],
         }
         for r in rows
     ]
@@ -150,8 +149,7 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
                 :TOTAL_PRICE AS TOTAL_PRICE,
                 :TOTAL_TAX AS TOTAL_TAX,
                 :TOTAL_LOYALTY AS TOTAL_LOYALTY,
-                :REGION AS REGION,
-                :CUSTOMER_TYPE AS CUSTOMER_TYPE
+                :REGION AS REGION
             FROM dual
         ) src
         ON (tgt.ROW_ID = src.ROW_ID)
@@ -161,16 +159,15 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
             tgt.TOTAL_PRICE = src.TOTAL_PRICE,
             tgt.TOTAL_TAX = src.TOTAL_TAX,
             tgt.TOTAL_LOYALTY = src.TOTAL_LOYALTY,
-            tgt.REGION = src.REGION,
-            tgt.CUSTOMER_TYPE = src.CUSTOMER_TYPE
+            tgt.REGION = src.REGION
         WHEN NOT MATCHED THEN INSERT (
             ROW_ID, INVOICE_NUMBER, SALE_DATE,
             TOTAL_PRICE, TOTAL_TAX, TOTAL_LOYALTY,
-            REGION, CUSTOMER_TYPE
+            REGION
         ) VALUES (
             src.ROW_ID, src.INVOICE_NUMBER, src.SALE_DATE,
             src.TOTAL_PRICE, src.TOTAL_TAX, src.TOTAL_LOYALTY,
-            src.REGION, src.CUSTOMER_TYPE
+            src.REGION
         )
     """
     return _merge_rows_oracle(cursor, rows, sql)
