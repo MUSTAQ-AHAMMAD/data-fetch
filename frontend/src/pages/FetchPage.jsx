@@ -61,6 +61,61 @@ const renderTableReport = (title, report) => {
   )
 }
 
+function FetchProgressBar({ progress }) {
+  if (!progress || progress.status === 'idle') return null
+
+  const { status, fetched, total } = progress
+  const pct = total != null && total > 0 ? Math.min(100, Math.round((fetched / total) * 100)) : null
+  const pending = total != null ? Math.max(0, total - fetched) : null
+
+  const barFill = status === 'storing' ? 100 : (pct ?? (status === 'done' ? 100 : 0))
+  const isError = status === 'error'
+  const isStoring = status === 'storing'
+  const isDone = status === 'done'
+
+  return (
+    <div className={`fetch-progress ${isError ? 'fetch-progress-error' : ''}`}>
+      <div className="fetch-progress-header">
+        <span className="fetch-progress-label">
+          {isError
+            ? '⚠ Error during fetch'
+            : isStoring
+            ? '💾 Storing to local database…'
+            : isDone
+            ? '✓ Complete'
+            : '⟳ Fetching from Odoo…'}
+        </span>
+        {pct != null && !isStoring && !isDone && (
+          <span className="fetch-progress-pct">{pct}%</span>
+        )}
+      </div>
+      <div className="fetch-progress-bar-track">
+        <div
+          className={`fetch-progress-bar-fill ${isError ? 'fill-error' : isDone ? 'fill-done' : ''}`}
+          style={{ width: `${barFill}%` }}
+        />
+      </div>
+      <div className="fetch-progress-stats">
+        <div className="fp-stat">
+          <span className="fp-stat-label">Total</span>
+          <span className="fp-stat-value">{total != null ? total.toLocaleString() : '—'}</span>
+        </div>
+        <div className="fp-stat">
+          <span className="fp-stat-label">Fetched</span>
+          <span className="fp-stat-value fp-fetched">{fetched.toLocaleString()}</span>
+        </div>
+        <div className="fp-stat">
+          <span className="fp-stat-label">Pending</span>
+          <span className="fp-stat-value fp-pending">{pending != null ? pending.toLocaleString() : '—'}</span>
+        </div>
+      </div>
+      {isError && progress.error && (
+        <p className="warn" style={{ marginTop: '6px' }}>{progress.error}</p>
+      )}
+    </div>
+  )
+}
+
 export default function FetchPage() {
   const [startDate, setStartDate] = useState(defaultStart)
   const [endDate, setEndDate] = useState(defaultEnd)
@@ -72,7 +127,9 @@ export default function FetchPage() {
   const [summary, setSummary] = useState(null)
   const [health, setHealth] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [progress, setProgress] = useState(null)
   const abortControllerRef = useRef(null)
+  const progressIntervalRef = useRef(null)
 
   const apiRoot = useMemo(() => API_BASE.replace(/\/$/, ''), [])
 
@@ -98,14 +155,42 @@ export default function FetchPage() {
     checkHealth()
   }, [apiRoot])
 
+  const startProgressPolling = (root) => {
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
+    progressIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${root}/sync/progress`)
+        if (!res.ok) return
+        const data = await res.json()
+        setProgress(data)
+        if (data.status === 'done' || data.status === 'error') {
+          clearInterval(progressIntervalRef.current)
+          progressIntervalRef.current = null
+        }
+      } catch (_err) {
+        // best-effort
+      }
+    }, 800)
+  }
+
+  const stopProgressPolling = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+      progressIntervalRef.current = null
+    }
+  }
+
   const submit = async (event) => {
     event.preventDefault()
     setIsLoading(true)
     setSyncStatus({ tone: 'busy', message: 'Fetching from Odoo…' })
     setSummary(null)
+    setProgress({ status: 'fetching', fetched: 0, total: null, error: null })
 
     const controller = new AbortController()
     abortControllerRef.current = controller
+
+    startProgressPolling(apiRoot)
 
     const payload = {
       start_date: startDate.replace('T', ' ') + ':00',
@@ -148,6 +233,12 @@ export default function FetchPage() {
         setSyncStatus({ tone: 'error', message: error.message })
       }
     } finally {
+      stopProgressPolling()
+      // Do a final progress poll to show the terminal state
+      try {
+        const res = await fetch(`${apiRoot}/sync/progress`)
+        if (res.ok) setProgress(await res.json())
+      } catch (_err) { /* best-effort */ }
       abortControllerRef.current = null
       setIsLoading(false)
     }
@@ -252,6 +343,7 @@ export default function FetchPage() {
               <span className="dot" />
               <span>{syncStatus.message}</span>
             </div>
+            <FetchProgressBar progress={progress} />
           </form>
         </section>
 

@@ -363,3 +363,100 @@
 .cta-cancel:hover {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
+
+/* ── Fetch progress bar ─────────────────────────────────────────────────── */
+
+.fetch-progress {
+  border: 1px solid var(--panel-stroke);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--input-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fetch-progress-error {
+  border-color: rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.06);
+}
+
+.fetch-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fetch-progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.fetch-progress-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffb703;
+}
+
+.fetch-progress-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.fetch-progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffb703, #ff7849);
+  transition: width 0.4s ease;
+}
+
+.fetch-progress-bar-fill.fill-done {
+  background: linear-gradient(90deg, #3dd598, #2aaf78);
+}
+
+.fetch-progress-bar-fill.fill-error {
+  background: linear-gradient(90deg, #ff6b6b, #cc4444);
+}
+
+.fetch-progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fp-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: center;
+  padding: 8px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-stroke);
+  background: rgba(255,255,255,0.03);
+}
+
+.fp-stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.fp-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-fetched {
+  color: #ffb703;
+}
+
+.fp-pending {
+  color: #8ab4f8;
+}

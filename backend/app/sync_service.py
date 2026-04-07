@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 
 from . import cancel as _cancel
 from . import odoo_client
+from . import progress as _progress
 from .config import Settings
 from .db import describe_target, test_connection
 from .local_db import init_db, upsert_line_items, upsert_payments, upsert_sales
@@ -240,23 +241,29 @@ async def sync_orders(
     company_id: Optional[int] = None,
 ) -> SyncSummary:
     _cancel.reset()
+    _progress.reset()
     _ensure_config(settings)
     oracle_target = describe_target(settings)
     oracle_connected = await test_connection(settings)
-    orders = await odoo_client.fetch_orders(
-        settings=settings,
-        start_date=start_date,
-        end_date=end_date,
-        order_id_gt=order_id_gt,
-        page_limit=page_limit,
-        pos_id=pos_id,
-        company_id=company_id,
-    )
+    try:
+        orders = await odoo_client.fetch_orders(
+            settings=settings,
+            start_date=start_date,
+            end_date=end_date,
+            order_id_gt=order_id_gt,
+            page_limit=page_limit,
+            pos_id=pos_id,
+            company_id=company_id,
+        )
+    except Exception as exc:
+        _progress.error(str(exc))
+        raise
 
     if not orders:
         empty_sales = _empty_report()
         empty_payments = _empty_report()
         empty_lines = _empty_report()
+        _progress.done()
         return SyncSummary(
             orders_fetched=0,
             sales_upserted=empty_sales.upserted,
@@ -279,15 +286,18 @@ async def sync_orders(
             detail="Sync cancelled before writing to local database.",
         )
 
+    _progress.start_storing()
     try:
         sales_report, payments_report, lines_report = await _write_to_local(settings, orders)
     except Exception as exc:
+        _progress.error(str(exc))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to write to local database: {exc}",
         ) from exc
 
     reports = [sales_report, payments_report, lines_report]
+    _progress.done()
 
     return SyncSummary(
         orders_fetched=len(orders),
