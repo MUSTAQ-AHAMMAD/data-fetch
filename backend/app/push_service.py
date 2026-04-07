@@ -38,23 +38,69 @@ def _to_datetime(value: Any) -> Optional[datetime]:
 
 
 def _normalize_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{**r, "SALE_DATE": _to_datetime(r.get("SALE_DATE"))} for r in rows]
+    # Only include the columns that are bind variables in the Oracle MERGE SQL.
+    # Extra SQLite-only columns (e.g. SYNCED_TO_ORACLE, FETCHED_AT) must be
+    # stripped out; python-oracledb passes ALL dict keys as bind variable
+    # metadata to Oracle, which rejects unknown variable names with ORA-01036.
+    return [
+        {
+            "ROW_ID": r["ROW_ID"],
+            "INVOICE_NUMBER": r["INVOICE_NUMBER"],
+            "OUTLET_NAME": r["OUTLET_NAME"],
+            "REGISTER_NAME": r["REGISTER_NAME"],
+            "SALE_DATE": _to_datetime(r.get("SALE_DATE")),
+            "TOTAL_PRICE": r["TOTAL_PRICE"],
+            "TOTAL_TAX": r["TOTAL_TAX"],
+            "TOTAL_LOYALTY": r["TOTAL_LOYALTY"],
+            "TOTAL_PRICE_INCL_TAX": r["TOTAL_PRICE_INCL_TAX"],
+            "VERSION": r["VERSION"],
+            "REGION": r["REGION"],
+            "CUSTOMER_TYPE": r["CUSTOMER_TYPE"],
+        }
+        for r in rows
+    ]
 
 
 def _normalize_payment_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
         {
-            **r,
+            "ROW_ID": r["ROW_ID"],
+            "INVOICE_NUMBER": r["INVOICE_NUMBER"],
+            "OUTLET_NAME": r["OUTLET_NAME"],
+            "REGISTER_NAME": r["REGISTER_NAME"],
+            "AMOUNT": r["AMOUNT"],
+            "CURRENCY": r["CURRENCY"],
+            "PAYMENT_TYPE": r["PAYMENT_TYPE"],
             "PAYMENT_DATE": _to_datetime(r.get("PAYMENT_DATE")),
-            "SALE_DATE": _to_datetime(r.get("SALE_DATE")),
             "DELETED_AT": _to_datetime(r.get("DELETED_AT")),
+            "REGION": r["REGION"],
+            "SALE_DATE": _to_datetime(r.get("SALE_DATE")),
         }
         for r in rows
     ]
 
 
 def _normalize_line_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [{**r, "SALE_DATE": _to_datetime(r.get("SALE_DATE"))} for r in rows]
+    return [
+        {
+            "ROW_ID": r["ROW_ID"],
+            "INVOICE_NUMBER": r["INVOICE_NUMBER"],
+            "LINE_NUMBER": r["LINE_NUMBER"],
+            "ITEM_NUMBER": r["ITEM_NUMBER"],
+            "ITEM_NAME": r["ITEM_NAME"],
+            "QUANTITY": r["QUANTITY"],
+            "LOYALTY_VALUE": r["LOYALTY_VALUE"],
+            "TOTAL_PRICE": r["TOTAL_PRICE"],
+            "TOTAL_TAX": r["TOTAL_TAX"],
+            "TOTAL_DISCOUNT": r["TOTAL_DISCOUNT"],
+            "TOTAL_LOYALTY": r["TOTAL_LOYALTY"],
+            "REGION": r["REGION"],
+            "SALE_DATE": _to_datetime(r.get("SALE_DATE")),
+            "TAX_NAME": r["TAX_NAME"],
+            "INV_UPLOAD_QNT_FLAG": r["INV_UPLOAD_QNT_FLAG"],
+        }
+        for r in rows
+    ]
 
 
 def _chunk_list(values: List[int], size: int) -> List[List[int]]:

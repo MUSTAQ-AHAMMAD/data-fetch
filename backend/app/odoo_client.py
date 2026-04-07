@@ -102,17 +102,18 @@ async def fetch_orders(
             if company_id is not None:
                 params["company_id"] = company_id
 
+            # Build a prepared request so we can log the final URL (with
+            # percent-encoded query string) before sending it.
+            request = client.build_request(
+                "GET", settings.odoo_api_url, headers=headers, params=params
+            )
             logger.info(
-                "Fetching Odoo orders: url=%s start_date=%s end_date=%s offset=%d limit=%d",
-                settings.odoo_api_url,
-                _format_date(start_date),
-                _format_date(end_date),
-                offset,
-                limit,
+                "Fetching Odoo orders: url=%s",
+                request.url,
             )
 
             try:
-                response = await client.get(settings.odoo_api_url, headers=headers, params=params)
+                response = await client.send(request)
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 raise HTTPException(
@@ -142,12 +143,16 @@ async def fetch_orders(
                 ) from exc
 
             if not page_results and offset == 0:
+                # Log the full response body (truncated) so operators can see
+                # exactly what Odoo returned and why no records came back.
+                raw_body = response.text[:2000]
                 logger.warning(
-                    "Odoo returned zero results for date range %s – %s "
-                    "(response keys: %s)",
+                    "Odoo returned zero results for date range %s – %s. "
+                    "Request URL: %s | Response (first 2000 chars): %s",
                     _format_date(start_date),
                     _format_date(end_date),
-                    list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
+                    request.url,
+                    raw_body,
                 )
 
             orders.extend(page_results)
