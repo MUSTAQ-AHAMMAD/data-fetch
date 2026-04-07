@@ -112,7 +112,10 @@ def _build_sales_rows(
                 "total_price_incl_tax": total_paid,
                 "version": int(order["order_id"]),
                 "region": settings.region,
-                "customer_type": _customer_type(order.get("customer_name", "")),
+                "customer_type": (
+                    order.get("customer_type", "").strip().upper()
+                    or _customer_type(order.get("customer_name", ""))
+                ),
             }
         )
     return rows

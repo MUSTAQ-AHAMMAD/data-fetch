@@ -258,8 +258,41 @@ async def fetch_orders(
                 if len(page_results) < limit:
                     break
 
+    # ── Deduplicate by order_id ──────────────────────────────────────────────
+    # Offset-based parallel pagination can yield duplicate records when the
+    # server-side total is inaccurate or new records are inserted mid-fetch,
+    # shifting page boundaries.  De-duplicating here ensures (a) the reported
+    # orders_fetched count is accurate and (b) we never inflate storage counts.
+    # Orders without an order_id are malformed and skipped entirely.
+    seen_ids: set = set()
+    unique_orders: List[Dict[str, Any]] = []
+    skipped_no_id = 0
+    for order_wrapper in orders:
+        order = order_wrapper.get("order") or {}
+        order_id = order.get("order_id")
+        if order_id is None:
+            skipped_no_id += 1
+            continue
+        if order_id not in seen_ids:
+            seen_ids.add(order_id)
+            unique_orders.append(order_wrapper)
+    duplicate_count = len(orders) - len(unique_orders) - skipped_no_id
+    if skipped_no_id:
+        logger.warning(
+            "Skipped %d orders with missing order_id during deduplication.",
+            skipped_no_id,
+        )
+    if duplicate_count:
+        logger.warning(
+            "Removed %d duplicate orders during deduplication (raw=%d, unique=%d).",
+            duplicate_count,
+            len(orders),
+            len(unique_orders),
+        )
+    orders = unique_orders
+
     logger.info(
-        "Odoo fetch complete: %d orders collected (%s – %s)",
+        "Odoo fetch complete: %d unique orders collected (%s – %s)",
         len(orders),
         _format_date(start_date),
         _format_date(end_date),
