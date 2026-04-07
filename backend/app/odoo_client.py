@@ -207,8 +207,14 @@ async def fetch_orders(
         orders: List[Dict[str, Any]] = list(page0_results)
         _progress.update_fetched(len(orders))
 
+        # The API may return more records per page than the requested `limit`
+        # (e.g. it has a minimum or fixed page size of 1000).  Use the actual
+        # number of records returned on page 0 as the effective page size for
+        # all subsequent offset calculations so pages don't overlap.
+        actual_page_size = len(page0_results)
+
         # ── Early exit: everything fit in the first page ──
-        if len(page0_results) < limit:
+        if actual_page_size < limit or (total is not None and actual_page_size >= total):
             logger.info(
                 "Odoo fetch complete (single page): %d orders (%s – %s)",
                 len(orders),
@@ -218,10 +224,12 @@ async def fetch_orders(
             return orders
 
         # ── Determine remaining pages ──
-        if total is not None and total > limit:
+        if total is not None and total > actual_page_size:
             # We know exactly how many more pages we need.
-            remaining_pages = math.ceil((total - limit) / limit)
-            offsets = [limit + i * limit for i in range(remaining_pages)]
+            # Use actual_page_size (not the requested limit) so offsets align
+            # with the real page boundaries the API uses.
+            remaining_pages = math.ceil((total - actual_page_size) / actual_page_size)
+            offsets = [actual_page_size + i * actual_page_size for i in range(remaining_pages)]
         else:
             # total unknown — fall back to sequential pagination (old behaviour).
             offsets = None
@@ -255,17 +263,17 @@ async def fetch_orders(
 
             # ── Continuation sweep ────────────────────────────────────────────
             # If the API's reported `total` was stale/understated, the last
-            # parallel page may be full (== limit), meaning there are additional
-            # records beyond the calculated offsets.  We continue fetching in
-            # parallel batches (same concurrency cap as the main phase) until we
-            # see a partial or empty page, guaranteeing 100 % coverage regardless
-            # of total accuracy.
-            if last_page_size == limit:
-                continuation_offset = offsets[-1] + limit
+            # parallel page may be full (== actual_page_size), meaning there are
+            # additional records beyond the calculated offsets.  We continue
+            # fetching in parallel batches (same concurrency cap as the main
+            # phase) until we see a partial or empty page, guaranteeing 100 %
+            # coverage regardless of total accuracy.
+            if last_page_size == actual_page_size:
+                continuation_offset = offsets[-1] + actual_page_size
                 logger.warning(
                     "Last parallel page was full (%d records at offset %d). "
                     "API total=%s may be understated — continuing in parallel batches to collect remaining records.",
-                    limit,
+                    actual_page_size,
                     offsets[-1],
                     total,
                 )
@@ -279,7 +287,7 @@ async def fetch_orders(
                         )
                     # Probe up to max_concurrent pages ahead in parallel.
                     batch_offsets = [
-                        continuation_offset + i * limit for i in range(max_concurrent)
+                        continuation_offset + i * actual_page_size for i in range(max_concurrent)
                     ]
                     logger.info(
                         "Continuation batch: fetching offsets %s – %s",
@@ -306,8 +314,8 @@ async def fetch_orders(
                             break
                         orders.extend(batch_records)
                         _progress.update_fetched(len(orders))
-                        continuation_offset = _off + limit
-                        if len(batch_records) < limit:
+                        continuation_offset = _off + actual_page_size
+                        if len(batch_records) < actual_page_size:
                             cont_done = True
                             break
         else:

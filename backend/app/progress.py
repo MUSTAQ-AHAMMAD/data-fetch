@@ -21,7 +21,17 @@ def start_fetch(total: Optional[int] = None) -> None:
 
 
 def update_fetched(count: int) -> None:
-    """Update the running count of records fetched so far."""
+    """Update the running count of records fetched so far.
+
+    If the API-reported total is known, the counter is capped at that value so
+    the progress display never shows a fetched count that exceeds the total
+    (which can happen when the server ignores the requested page-size limit and
+    returns larger pages than expected, causing parallel pages to overlap before
+    deduplication).
+    """
+    total = _state.get("total")
+    if total is not None and count > total:
+        count = total
     _state["fetched"] = count
 
 
