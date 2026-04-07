@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -103,10 +102,6 @@ async def fetch_orders(
                 "limit": limit,
                 "offset": offset,
             }
-            # Use Odoo's standard domain filter to apply the order-ID floor so
-            # the server receives a well-formed expression it can parse.
-            if order_id_gt is not None:
-                params["domain"] = json.dumps([["id", ">", order_id_gt]])
             if pos_id is not None:
                 params["pos_id"] = pos_id
             if company_id is not None:
