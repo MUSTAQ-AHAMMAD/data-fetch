@@ -39,14 +39,14 @@ def _to_datetime(value: Any) -> Optional[datetime]:
 
 def _normalize_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     # Only include the columns that are bind variables in the Oracle MERGE SQL.
-    # Extra SQLite-only columns (e.g. SYNCED_TO_ORACLE, FETCHED_AT) must be
-    # stripped out; python-oracledb passes ALL dict keys as bind variable
-    # metadata to Oracle, which rejects unknown variable names with ORA-01036.
+    # Extra SQLite-only columns (e.g. SYNCED_TO_ORACLE, FETCHED_AT, OUTLET_NAME,
+    # REGISTER_NAME) must be stripped out; python-oracledb passes ALL dict keys
+    # as bind variable metadata to Oracle, which rejects unknown variable names
+    # with ORA-01036.
     return [
         {
             "ROW_ID": r["ROW_ID"],
             "INVOICE_NUMBER": r["INVOICE_NUMBER"],
-            "REGISTER_NAME": r["REGISTER_NAME"],
             "SALE_DATE": _to_datetime(r.get("SALE_DATE")),
             "TOTAL_PRICE": r["TOTAL_PRICE"],
             "TOTAL_TAX": r["TOTAL_TAX"],
@@ -65,7 +65,6 @@ def _normalize_payment_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         {
             "ROW_ID": r["ROW_ID"],
             "INVOICE_NUMBER": r["INVOICE_NUMBER"],
-            "REGISTER_NAME": r["REGISTER_NAME"],
             "AMOUNT": r["AMOUNT"],
             "CURRENCY": r["CURRENCY"],
             "PAYMENT_TYPE": r["PAYMENT_TYPE"],
@@ -149,7 +148,6 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
             SELECT
                 :ROW_ID AS ROW_ID,
                 :INVOICE_NUMBER AS INVOICE_NUMBER,
-                :REGISTER_NAME AS REGISTER_NAME,
                 :SALE_DATE AS SALE_DATE,
                 :TOTAL_PRICE AS TOTAL_PRICE,
                 :TOTAL_TAX AS TOTAL_TAX,
@@ -163,7 +161,6 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
         ON (tgt.ROW_ID = src.ROW_ID)
         WHEN MATCHED THEN UPDATE SET
             tgt.INVOICE_NUMBER = src.INVOICE_NUMBER,
-            tgt.REGISTER_NAME = src.REGISTER_NAME,
             tgt.SALE_DATE = src.SALE_DATE,
             tgt.TOTAL_PRICE = src.TOTAL_PRICE,
             tgt.TOTAL_TAX = src.TOTAL_TAX,
@@ -173,11 +170,11 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
             tgt.REGION = src.REGION,
             tgt.CUSTOMER_TYPE = src.CUSTOMER_TYPE
         WHEN NOT MATCHED THEN INSERT (
-            ROW_ID, INVOICE_NUMBER, REGISTER_NAME, SALE_DATE,
+            ROW_ID, INVOICE_NUMBER, SALE_DATE,
             TOTAL_PRICE, TOTAL_TAX, TOTAL_LOYALTY, TOTAL_PRICE_INCL_TAX,
             VERSION, REGION, CUSTOMER_TYPE
         ) VALUES (
-            src.ROW_ID, src.INVOICE_NUMBER, src.REGISTER_NAME, src.SALE_DATE,
+            src.ROW_ID, src.INVOICE_NUMBER, src.SALE_DATE,
             src.TOTAL_PRICE, src.TOTAL_TAX, src.TOTAL_LOYALTY, src.TOTAL_PRICE_INCL_TAX,
             src.VERSION, src.REGION, src.CUSTOMER_TYPE
         )
@@ -195,7 +192,6 @@ def _push_payments_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport
             SELECT
                 :ROW_ID AS ROW_ID,
                 :INVOICE_NUMBER AS INVOICE_NUMBER,
-                :REGISTER_NAME AS REGISTER_NAME,
                 :AMOUNT AS AMOUNT,
                 :CURRENCY AS CURRENCY,
                 :PAYMENT_TYPE AS PAYMENT_TYPE,
@@ -208,7 +204,6 @@ def _push_payments_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport
         ON (tgt.ROW_ID = src.ROW_ID)
         WHEN MATCHED THEN UPDATE SET
             tgt.INVOICE_NUMBER = src.INVOICE_NUMBER,
-            tgt.REGISTER_NAME = src.REGISTER_NAME,
             tgt.AMOUNT = src.AMOUNT,
             tgt.CURRENCY = src.CURRENCY,
             tgt.PAYMENT_TYPE = src.PAYMENT_TYPE,
@@ -217,10 +212,10 @@ def _push_payments_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport
             tgt.REGION = src.REGION,
             tgt.SALE_DATE = src.SALE_DATE
         WHEN NOT MATCHED THEN INSERT (
-            ROW_ID, INVOICE_NUMBER, REGISTER_NAME, AMOUNT, CURRENCY,
+            ROW_ID, INVOICE_NUMBER, AMOUNT, CURRENCY,
             PAYMENT_TYPE, PAYMENT_DATE, DELETED_AT, REGION, SALE_DATE
         ) VALUES (
-            src.ROW_ID, src.INVOICE_NUMBER, src.REGISTER_NAME, src.AMOUNT, src.CURRENCY,
+            src.ROW_ID, src.INVOICE_NUMBER, src.AMOUNT, src.CURRENCY,
             src.PAYMENT_TYPE, src.PAYMENT_DATE, src.DELETED_AT, src.REGION, src.SALE_DATE
         )
     """
