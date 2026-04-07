@@ -110,7 +110,7 @@ def _build_sales_rows(
                 "total_tax": total_tax,
                 "total_loyalty": 0,
                 "total_price_incl_tax": total_paid,
-                "version": int(datetime.utcnow().timestamp()),
+                "version": int(order["order_id"]),
                 "region": settings.region,
                 "customer_type": _customer_type(order.get("customer_name", "")),
             }
