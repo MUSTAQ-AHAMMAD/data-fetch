@@ -1,7 +1,10 @@
 """Push staged rows from local SQLite database to Oracle."""
 
 import asyncio
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import HTTPException, status
 
 from .config import Settings
 from .db import get_connection
@@ -14,6 +17,44 @@ from .local_db import (
 from .schemas import ConnectionReport, PushSummary, RetryBatch, TableSyncReport
 
 RETRY_BATCH_SIZE = 50
+
+
+def _to_datetime(value: Any) -> Optional[datetime]:
+    """Convert an ISO string (or passthrough datetime/None) to a Python datetime.
+
+    python-oracledb maps Python ``datetime`` objects to Oracle DATE/TIMESTAMP
+    natively. Passing a bare string causes Oracle to attempt an implicit
+    conversion using the session NLS_DATE_FORMAT which typically does not
+    support the ISO-8601 'T' separator stored by SQLite, leading to an
+    ORA-01858 / ORA-01843 error and a 500 response.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    return value
+
+
+def _normalize_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [{**r, "SALE_DATE": _to_datetime(r.get("SALE_DATE"))} for r in rows]
+
+
+def _normalize_payment_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        {
+            **r,
+            "PAYMENT_DATE": _to_datetime(r.get("PAYMENT_DATE")),
+            "SALE_DATE": _to_datetime(r.get("SALE_DATE")),
+            "DELETED_AT": _to_datetime(r.get("DELETED_AT")),
+        }
+        for r in rows
+    ]
+
+
+def _normalize_line_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [{**r, "SALE_DATE": _to_datetime(r.get("SALE_DATE"))} for r in rows]
 
 
 def _chunk_list(values: List[int], size: int) -> List[List[int]]:
@@ -57,6 +98,7 @@ def _merge_rows_oracle(cursor, rows: List[Dict[str, Any]], sql: str) -> TableSyn
 def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
         return TableSyncReport(attempted=0, upserted=0, missing_row_ids=[], retry_batches=[], errors=[])
+    rows = _normalize_sales_rows(rows)
     sql = """
         MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_SALES tgt
         USING (
@@ -104,6 +146,7 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
 def _push_payments_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
         return TableSyncReport(attempted=0, upserted=0, missing_row_ids=[], retry_batches=[], errors=[])
+    rows = _normalize_payment_rows(rows)
     sql = """
         MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_PAYMENTS tgt
         USING (
@@ -147,6 +190,7 @@ def _push_payments_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport
 def _push_lines_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
     if not rows:
         return TableSyncReport(attempted=0, upserted=0, missing_row_ids=[], retry_batches=[], errors=[])
+    rows = _normalize_line_rows(rows)
     sql = """
         MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_LINE_ITEMS tgt
         USING (
@@ -245,18 +289,26 @@ async def push_to_oracle(
     if "line_items" in tables:
         line_rows = await get_unsynced_line_items(settings, batch_size)
 
-    async with get_connection(settings) as conn:
-        cursor = await asyncio.to_thread(conn.cursor)
-        try:
-            if sales_rows:
-                sales_report = await asyncio.to_thread(_push_sales_oracle, cursor, sales_rows)
-            if payment_rows:
-                payments_report = await asyncio.to_thread(_push_payments_oracle, cursor, payment_rows)
-            if line_rows:
-                lines_report = await asyncio.to_thread(_push_lines_oracle, cursor, line_rows)
-            await asyncio.to_thread(conn.commit)
-        finally:
-            await asyncio.to_thread(cursor.close)
+    try:
+        async with get_connection(settings) as conn:
+            cursor = await asyncio.to_thread(conn.cursor)
+            try:
+                if sales_rows:
+                    sales_report = await asyncio.to_thread(_push_sales_oracle, cursor, sales_rows)
+                if payment_rows:
+                    payments_report = await asyncio.to_thread(_push_payments_oracle, cursor, payment_rows)
+                if line_rows:
+                    lines_report = await asyncio.to_thread(_push_lines_oracle, cursor, line_rows)
+                await asyncio.to_thread(conn.commit)
+            finally:
+                await asyncio.to_thread(cursor.close)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Oracle push failed: {exc}",
+        ) from exc
 
     # Mark successfully pushed rows as synced
     if sales_rows:
