@@ -112,6 +112,32 @@
   }
 }
 
+/* ── Date + time side-by-side row ─────────────────────────────────────────── */
+
+.date-time-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.field-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.field-time {
+  flex: 0 0 130px;
+}
+
+@media (max-width: 480px) {
+  .date-time-row {
+    flex-direction: column;
+  }
+  .field-time {
+    flex: 1 1 auto;
+  }
+}
+
 .cta {
   margin-top: 4px;
   padding: 14px 12px;

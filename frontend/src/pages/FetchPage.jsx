@@ -26,9 +26,10 @@ function SyncTimeline({ events }) {
   )
 }
 
-// Return today's date as YYYY-MM-DD (local time, no UTC conversion).
-const defaultDate = () => {
+// Return a date as YYYY-MM-DD (local time, no UTC conversion), offset by `offsetDays`.
+const localDate = (offsetDays = 0) => {
   const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
@@ -139,8 +140,10 @@ function FetchProgressBar({ progress, elapsedSeconds }) {
 }
 
 export default function FetchPage() {
-  const [startDate, setStartDate] = useState(defaultDate)
-  const [endDate, setEndDate] = useState(defaultDate)
+  const [startDate, setStartDate] = useState(() => localDate(-3))
+  const [startTime, setStartTime] = useState('00:00')
+  const [endDate, setEndDate] = useState(() => localDate())
+  const [endTime, setEndTime] = useState('23:59')
   const [posId, setPosId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [orderFloor, setOrderFloor] = useState('')
@@ -265,8 +268,8 @@ export default function FetchPage() {
     startProgressPolling(apiRoot)
 
     const payload = {
-      start_date: startDate + ' 00:00:00',
-      end_date: endDate + ' 23:59:59',
+      start_date: `${startDate} ${startTime}:00`,
+      end_date: `${endDate} ${endTime}:59`,
       order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
@@ -344,24 +347,46 @@ export default function FetchPage() {
             <p>Select a date window and trigger the import pipeline.</p>
           </div>
           <form className="form" onSubmit={submit}>
-            <label className="field">
-              <span>Start date</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>End date</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                required
-              />
-            </label>
+            <div className="date-time-row">
+              <label className="field field-grow">
+                <span>Start date</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="field field-time">
+                <span>Start time</span>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  required
+                />
+              </label>
+            </div>
+            <div className="date-time-row">
+              <label className="field field-grow">
+                <span>End date</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="field field-time">
+                <span>End time</span>
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  required
+                />
+              </label>
+            </div>
             <div className="inline">
               <label className="field">
                 <span>Order ID floor</span>
