@@ -357,7 +357,7 @@ export default function FetchPage() {
                   required
                 />
               </label>
-              <label className="field field-time">
+              <label className="field field-time" lang="en-GB">
                 <span>Start time</span>
                 <input
                   type="time"
@@ -377,7 +377,7 @@ export default function FetchPage() {
                   required
                 />
               </label>
-              <label className="field field-time">
+              <label className="field field-time" lang="en-GB">
                 <span>End time</span>
                 <input
                   type="time"
