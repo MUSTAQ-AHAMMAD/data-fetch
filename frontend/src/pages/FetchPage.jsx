@@ -5,10 +5,8 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const pad = (n) => String(n).padStart(2, '0')
 
 // Format a Date as a datetime-local input value using the browser's LOCAL timezone.
-// The datetime-local input does not carry timezone info; the browser interprets whatever
-// string is placed here as local time.  By formatting in local time we ensure that when
-// the user submits the form, `new Date(value).toISOString()` correctly converts their
-// local selection to UTC before sending it to the backend → Odoo.
+// The datetime-local input does not carry timezone info; values are kept as local time
+// and sent to the backend as-is so Odoo receives exactly the date/time the user selected.
 const toInputValue = (value) => {
   const d = new Date(value)
   d.setSeconds(0, 0)
@@ -110,8 +108,8 @@ export default function FetchPage() {
     abortControllerRef.current = controller
 
     const payload = {
-      start_date: new Date(startDate).toISOString(),
-      end_date: new Date(endDate).toISOString(),
+      start_date: startDate.replace('T', ' ') + ':00',
+      end_date: endDate.replace('T', ' ') + ':00',
       order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
@@ -183,7 +181,7 @@ export default function FetchPage() {
           </div>
           <form className="form" onSubmit={submit}>
             <label className="field">
-              <span>Start date/time <small className="tz-hint">(local time → UTC)</small></span>
+              <span>Start date/time <small className="tz-hint">(local time)</small></span>
               <input
                 type="datetime-local"
                 value={startDate}
@@ -192,7 +190,7 @@ export default function FetchPage() {
               />
             </label>
             <label className="field">
-              <span>End date/time <small className="tz-hint">(local time → UTC)</small></span>
+              <span>End date/time <small className="tz-hint">(local time)</small></span>
               <input
                 type="datetime-local"
                 value={endDate}
