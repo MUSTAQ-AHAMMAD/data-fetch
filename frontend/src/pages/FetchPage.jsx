@@ -268,8 +268,8 @@ export default function FetchPage() {
     startProgressPolling(apiRoot)
 
     const payload = {
-      start_date: `${startDate} ${startTime}:00`,
-      end_date: `${endDate} ${endTime}:59`,
+      start_date: `${startDate} ${startTime}`,
+      end_date: `${endDate} ${endTime}`,
       order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
@@ -357,12 +357,13 @@ export default function FetchPage() {
                   required
                 />
               </label>
-              <label className="field field-time" lang="en-GB">
+              <label className="field field-time">
                 <span>Start time</span>
                 <input
-                  type="time"
-                  lang="en-GB"
-                  step="1"
+                  type="text"
+                  placeholder="HH:MM:SS"
+                  pattern="\d{2}:\d{2}:\d{2}"
+                  maxLength={8}
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
                   required
@@ -379,12 +380,13 @@ export default function FetchPage() {
                   required
                 />
               </label>
-              <label className="field field-time" lang="en-GB">
+              <label className="field field-time">
                 <span>End time</span>
                 <input
-                  type="time"
-                  lang="en-GB"
-                  step="1"
+                  type="text"
+                  placeholder="HH:MM:SS"
+                  pattern="\d{2}:\d{2}:\d{2}"
+                  maxLength={8}
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   required
