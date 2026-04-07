@@ -1,7 +1,6 @@
 """Push staged rows from local SQLite database to Oracle."""
 
 import asyncio
-import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,60 +16,7 @@ from .local_db import (
 )
 from .schemas import ConnectionReport, PushSummary, RetryBatch, TableSyncReport
 
-logger = logging.getLogger(__name__)
-
 RETRY_BATCH_SIZE = 50
-
-
-def _ensure_oracle_schema(cursor) -> None:
-    """Add any columns missing from Oracle target tables.
-
-    Oracle raises ORA-00904 (invalid identifier) when a MERGE references a
-    column that does not yet exist in the target table.  This function checks
-    the data dictionary and issues ALTER TABLE … ADD … statements for any
-    columns that are absent, so that the subsequent MERGE statements succeed
-    without manual DBA intervention.
-    """
-    needed_columns = {
-        "BACKUP_VENDHQ_SALES_TEMP": [
-            ("CUSTOMER_TYPE", "VARCHAR2(50)"),
-        ],
-    }
-    for table, cols in needed_columns.items():
-        for col_name, col_type in cols:
-            try:
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) FROM all_tab_columns
-                    WHERE owner = 'ODOO_INTEGRATION'
-                      AND table_name = :tbl
-                      AND column_name = :col
-                    """,
-                    {"tbl": table, "col": col_name},
-                )
-                row = cursor.fetchone()
-                if row and row[0] == 0:
-                    ddl = (
-                        f"ALTER TABLE ODOO_INTEGRATION.{table} "
-                        f"ADD {col_name} {col_type}"
-                    )
-                    cursor.execute(ddl)
-                    logger.info(
-                        "Oracle schema migration: added column %s.%s (%s)",
-                        table,
-                        col_name,
-                        col_type,
-                    )
-            except Exception as exc:  # noqa: BLE001
-                # Log prominently — if this fails (e.g. insufficient privileges),
-                # the subsequent MERGE will raise ORA-00904 with a clear message.
-                logger.warning(
-                    "Could not ensure Oracle column %s.%s exists — "
-                    "subsequent MERGE may fail if the column is absent: %s",
-                    table,
-                    col_name,
-                    exc,
-                )
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
@@ -106,7 +52,6 @@ def _normalize_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "TOTAL_TAX": r["TOTAL_TAX"],
             "TOTAL_LOYALTY": r["TOTAL_LOYALTY"],
             "REGION": r["REGION"],
-            "CUSTOMER_TYPE": r["CUSTOMER_TYPE"],
         }
         for r in rows
     ]
@@ -204,8 +149,7 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
                 :TOTAL_PRICE AS TOTAL_PRICE,
                 :TOTAL_TAX AS TOTAL_TAX,
                 :TOTAL_LOYALTY AS TOTAL_LOYALTY,
-                :REGION AS REGION,
-                :CUSTOMER_TYPE AS CUSTOMER_TYPE
+                :REGION AS REGION
             FROM dual
         ) src
         ON (tgt.ROW_ID = src.ROW_ID)
@@ -215,16 +159,15 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
             tgt.TOTAL_PRICE = src.TOTAL_PRICE,
             tgt.TOTAL_TAX = src.TOTAL_TAX,
             tgt.TOTAL_LOYALTY = src.TOTAL_LOYALTY,
-            tgt.REGION = src.REGION,
-            tgt.CUSTOMER_TYPE = src.CUSTOMER_TYPE
+            tgt.REGION = src.REGION
         WHEN NOT MATCHED THEN INSERT (
             ROW_ID, INVOICE_NUMBER, SALE_DATE,
             TOTAL_PRICE, TOTAL_TAX, TOTAL_LOYALTY,
-            REGION, CUSTOMER_TYPE
+            REGION
         ) VALUES (
             src.ROW_ID, src.INVOICE_NUMBER, src.SALE_DATE,
             src.TOTAL_PRICE, src.TOTAL_TAX, src.TOTAL_LOYALTY,
-            src.REGION, src.CUSTOMER_TYPE
+            src.REGION
         )
     """
     return _merge_rows_oracle(cursor, rows, sql)
@@ -376,8 +319,6 @@ async def push_to_oracle(
         async with get_connection(settings) as conn:
             cursor = await asyncio.to_thread(conn.cursor)
             try:
-                # Ensure all required columns exist before running MERGE statements.
-                await asyncio.to_thread(_ensure_oracle_schema, cursor)
                 if sales_rows:
                     sales_report = await asyncio.to_thread(_push_sales_oracle, cursor, sales_rows)
                 if payment_rows:
