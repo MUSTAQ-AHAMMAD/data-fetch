@@ -2,25 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-const pad = (n) => String(n).padStart(2, '0')
-
-// Format a Date as a datetime-local input value using the browser's LOCAL timezone.
-// The datetime-local input does not carry timezone info; values are kept as local time
-// and sent to the backend as-is so Odoo receives exactly the date/time the user selected.
-const toInputValue = (value) => {
-  const d = new Date(value)
-  d.setSeconds(0, 0)
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  )
-}
-
-const defaultEnd = () => toInputValue(new Date())
-const defaultStart = () => {
-  const start = new Date()
-  start.setDate(start.getDate() - 1)
-  return toInputValue(start)
+// Return today's date as YYYY-MM-DD (local time, no UTC conversion).
+const defaultDate = () => {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
 }
 
 const renderTableReport = (title, report) => {
@@ -68,10 +56,13 @@ function FetchProgressBar({ progress }) {
   const pct = total != null && total > 0 ? Math.min(100, Math.round((fetched / total) * 100)) : null
   const pending = total != null ? Math.max(0, total - fetched) : null
 
-  const barFill = status === 'storing' ? 100 : (pct ?? (status === 'done' ? 100 : 0))
   const isError = status === 'error'
   const isStoring = status === 'storing'
   const isDone = status === 'done'
+  // Show indeterminate animation when fetching but total is not yet known
+  const isIndeterminate = !isError && !isStoring && !isDone && pct == null
+
+  const barFill = isStoring || isDone ? 100 : (pct ?? 0)
 
   return (
     <div className={`fetch-progress ${isError ? 'fetch-progress-error' : ''}`}>
@@ -91,8 +82,8 @@ function FetchProgressBar({ progress }) {
       </div>
       <div className="fetch-progress-bar-track">
         <div
-          className={`fetch-progress-bar-fill ${isError ? 'fill-error' : isDone ? 'fill-done' : ''}`}
-          style={{ width: `${barFill}%` }}
+          className={`fetch-progress-bar-fill ${isError ? 'fill-error' : isDone ? 'fill-done' : isIndeterminate ? 'fill-indeterminate' : ''}`}
+          style={isIndeterminate ? {} : { width: `${barFill}%` }}
         />
       </div>
       <div className="fetch-progress-stats">
@@ -117,8 +108,8 @@ function FetchProgressBar({ progress }) {
 }
 
 export default function FetchPage() {
-  const [startDate, setStartDate] = useState(defaultStart)
-  const [endDate, setEndDate] = useState(defaultEnd)
+  const [startDate, setStartDate] = useState(defaultDate)
+  const [endDate, setEndDate] = useState(defaultDate)
   const [posId, setPosId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [orderFloor, setOrderFloor] = useState('')
@@ -193,8 +184,8 @@ export default function FetchPage() {
     startProgressPolling(apiRoot)
 
     const payload = {
-      start_date: startDate.replace('T', ' ') + ':00',
-      end_date: endDate.replace('T', ' ') + ':59',
+      start_date: startDate + ' 00:00:00',
+      end_date: endDate + ' 23:59:59',
       order_id_gt: orderFloor.trim() !== '' ? Number(orderFloor) : undefined,
       limit: pageLimit ? Number(pageLimit) : undefined,
       pos_id: posId.trim() !== '' ? Number(posId) : undefined,
@@ -272,18 +263,18 @@ export default function FetchPage() {
           </div>
           <form className="form" onSubmit={submit}>
             <label className="field">
-              <span>Start date/time <small className="tz-hint">(local time)</small></span>
+              <span>Start date</span>
               <input
-                type="datetime-local"
+                type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 required
               />
             </label>
             <label className="field">
-              <span>End date/time <small className="tz-hint">(local time)</small></span>
+              <span>End date</span>
               <input
-                type="datetime-local"
+                type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 required

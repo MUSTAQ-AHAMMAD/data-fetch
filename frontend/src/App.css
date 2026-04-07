@@ -421,6 +421,16 @@
   background: linear-gradient(90deg, #ff6b6b, #cc4444);
 }
 
+@keyframes indeterminate-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.fetch-progress-bar-fill.fill-indeterminate {
+  width: 30%;
+  animation: indeterminate-slide 1.4s ease-in-out infinite;
+}
+
 .fetch-progress-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
