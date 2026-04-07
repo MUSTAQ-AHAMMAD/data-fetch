@@ -2,6 +2,30 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+const formatElapsed = (seconds) => {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function SyncTimeline({ events }) {
+  if (!events || events.length === 0) return null
+  return (
+    <div className="sync-timeline">
+      {events.map((ev, idx) => (
+        <div key={idx} className={`timeline-step ${ev.error ? 'step-error' : ev.active ? 'step-active' : 'step-done'}`}>
+          <div className="step-dot" />
+          <div className="step-content">
+            <span className="step-label">{ev.label}</span>
+            {ev.time && <span className="step-time">{ev.time}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Return today's date as YYYY-MM-DD (local time, no UTC conversion).
 const defaultDate = () => {
   const d = new Date()
@@ -49,7 +73,7 @@ const renderTableReport = (title, report) => {
   )
 }
 
-function FetchProgressBar({ progress }) {
+function FetchProgressBar({ progress, elapsedSeconds }) {
   if (!progress || progress.status === 'idle') return null
 
   const { status, fetched, total } = progress
@@ -76,9 +100,16 @@ function FetchProgressBar({ progress }) {
             ? '✓ Complete'
             : '⟳ Fetching from Odoo…'}
         </span>
-        {pct != null && !isStoring && !isDone && (
-          <span className="fetch-progress-pct">{pct}%</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {elapsedSeconds != null && (
+            <span className={`elapsed-badge ${isDone || isError ? 'elapsed-done' : 'elapsed-running'}`}>
+              ⏱ {formatElapsed(elapsedSeconds)}
+            </span>
+          )}
+          {pct != null && !isStoring && !isDone && (
+            <span className="fetch-progress-pct">{pct}%</span>
+          )}
+        </div>
       </div>
       <div className="fetch-progress-bar-track">
         <div
@@ -119,10 +150,55 @@ export default function FetchPage() {
   const [health, setHealth] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState(null)
+  const [elapsed, setElapsed] = useState(null)
+  const [timelineEvents, setTimelineEvents] = useState([])
   const abortControllerRef = useRef(null)
   const progressIntervalRef = useRef(null)
+  const timerRef = useRef(null)
+  const prevStatusRef = useRef(null)
 
   const apiRoot = useMemo(() => API_BASE.replace(/\/$/, ''), [])
+
+  const startTimer = () => {
+    setElapsed(0)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000)
+  }
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  // Track timeline events based on progress status changes
+  useEffect(() => {
+    if (!progress) return
+    const status = progress.status
+    if (status === prevStatusRef.current) return
+    prevStatusRef.current = status
+    const now = new Date().toLocaleTimeString()
+    if (status === 'storing') {
+      setTimelineEvents((prev) => [
+        ...prev,
+        { label: '💾 Storing to local database', time: now, active: true, done: false },
+      ])
+    } else if (status === 'done') {
+      setTimelineEvents((prev) => {
+        const updated = prev.map((e) => ({ ...e, active: false, done: true }))
+        return [...updated, { label: '✓ Fetch complete', time: now, active: false, done: true }]
+      })
+    } else if (status === 'error') {
+      setTimelineEvents((prev) => [
+        ...prev,
+        { label: '⚠ Error during fetch', time: now, active: false, done: true, error: true },
+      ])
+    }
+  }, [progress])
+
+  // Cleanup timer on unmount
+  useEffect(() => () => stopTimer(), [])
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -177,6 +253,11 @@ export default function FetchPage() {
     setSyncStatus({ tone: 'busy', message: 'Fetching from Odoo…' })
     setSummary(null)
     setProgress({ status: 'fetching', fetched: 0, total: null, error: null })
+    prevStatusRef.current = null
+
+    const now = new Date().toLocaleTimeString()
+    setTimelineEvents([{ label: '⟳ Fetch started', time: now, active: true, done: false }])
+    startTimer()
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -225,6 +306,7 @@ export default function FetchPage() {
       }
     } finally {
       stopProgressPolling()
+      stopTimer()
       // Do a final progress poll to show the terminal state
       try {
         const res = await fetch(`${apiRoot}/sync/progress`)
@@ -334,7 +416,8 @@ export default function FetchPage() {
               <span className="dot" />
               <span>{syncStatus.message}</span>
             </div>
-            <FetchProgressBar progress={progress} />
+            <FetchProgressBar progress={progress} elapsedSeconds={elapsed} />
+            <SyncTimeline events={timelineEvents} />
           </form>
         </section>
 

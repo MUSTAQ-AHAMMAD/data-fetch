@@ -1,7 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './PushPage.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+const formatElapsed = (seconds) => {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function SyncTimeline({ events }) {
+  if (!events || events.length === 0) return null
+  return (
+    <div className="sync-timeline">
+      {events.map((ev, idx) => (
+        <div key={idx} className={`timeline-step ${ev.error ? 'step-error' : ev.active ? 'step-active' : 'step-done'}`}>
+          <div className="step-dot" />
+          <div className="step-content">
+            <span className="step-label">{ev.label}</span>
+            {ev.time && <span className="step-time">{ev.time}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 const renderTableReport = (title, report) => {
   if (!report) return null
@@ -63,8 +87,26 @@ export default function PushPage() {
   const [summary, setSummary] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [health, setHealth] = useState(null)
+  const [elapsed, setElapsed] = useState(null)
+  const [timelineEvents, setTimelineEvents] = useState([])
+  const timerRef = useRef(null)
 
   const apiRoot = useMemo(() => API_BASE.replace(/\/$/, ''), [])
+
+  const startTimer = () => {
+    setElapsed(0)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000)
+  }
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  useEffect(() => () => stopTimer(), [])
 
   const loadCounts = async () => {
     try {
@@ -101,6 +143,10 @@ export default function PushPage() {
     setPushStatus({ tone: 'busy', message: 'Pushing to Oracle…' })
     setSummary(null)
 
+    const now = new Date().toLocaleTimeString()
+    setTimelineEvents([{ label: '⟳ Push started', time: now, active: true, done: false }])
+    startTimer()
+
     try {
       const res = await fetch(`${apiRoot}/push`, {
         method: 'POST',
@@ -122,10 +168,24 @@ export default function PushPage() {
           ? `Push complete. ${pushed} rows sent to Oracle.`
           : 'Oracle not reachable. Check connection settings.',
       })
+      const doneTime = new Date().toLocaleTimeString()
+      setTimelineEvents((prev) => {
+        const updated = prev.map((e) => ({ ...e, active: false, done: true }))
+        return [
+          ...updated,
+          { label: `✓ Push complete - ${pushed} rows`, time: doneTime, active: false, done: true },
+        ]
+      })
       await loadCounts()
     } catch (err) {
       setPushStatus({ tone: 'error', message: err.message })
+      const errTime = new Date().toLocaleTimeString()
+      setTimelineEvents((prev) => [
+        ...prev,
+        { label: `⚠ ${err.message}`, time: errTime, active: false, done: true, error: true },
+      ])
     } finally {
+      stopTimer()
       setIsLoading(false)
     }
   }
@@ -197,6 +257,16 @@ export default function PushPage() {
             <span className="dot" />
             <span>{pushStatus.message}</span>
           </div>
+
+          {elapsed != null && (
+            <div style={{ marginTop: '0.75rem' }}>
+              <span className={`elapsed-badge ${isLoading ? 'elapsed-running' : 'elapsed-done'}`}>
+                ⏱ {formatElapsed(elapsed)}
+              </span>
+            </div>
+          )}
+
+          <SyncTimeline events={timelineEvents} />
         </section>
 
         <section className="panel summary">
