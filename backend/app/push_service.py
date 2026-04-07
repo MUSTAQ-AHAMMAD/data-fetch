@@ -144,7 +144,7 @@ def _push_sales_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
         return TableSyncReport(attempted=0, upserted=0, missing_row_ids=[], retry_batches=[], errors=[])
     rows = _normalize_sales_rows(rows)
     sql = """
-        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_SALES tgt
+        MERGE INTO ODOO_INTEGRATION.BACKUP_VENDHQ_SALES_TEMP tgt
         USING (
             SELECT
                 :ROW_ID AS ROW_ID,
@@ -190,7 +190,7 @@ def _push_payments_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport
         return TableSyncReport(attempted=0, upserted=0, missing_row_ids=[], retry_batches=[], errors=[])
     rows = _normalize_payment_rows(rows)
     sql = """
-        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_PAYMENTS tgt
+        MERGE INTO ODOO_INTEGRATION.BACKUP_VENDHQ_PAYMENTS_TEMP tgt
         USING (
             SELECT
                 :ROW_ID AS ROW_ID,
@@ -232,7 +232,7 @@ def _push_lines_oracle(cursor, rows: List[Dict[str, Any]]) -> TableSyncReport:
         return TableSyncReport(attempted=0, upserted=0, missing_row_ids=[], retry_batches=[], errors=[])
     rows = _normalize_line_rows(rows)
     sql = """
-        MERGE INTO ODOO_INTEGRATION.TEST_BACKUP_VENDHQ_LINE_ITEMS tgt
+        MERGE INTO ODOO_INTEGRATION.BACKUP_VENDHQ_LINE_ITEMS_TEMP tgt
         USING (
             SELECT
                 :ROW_ID AS ROW_ID,
