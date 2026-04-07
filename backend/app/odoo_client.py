@@ -61,7 +61,11 @@ def _extract_results(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]
     total: Optional[int] = None
     for key in ("total", "length", "count"):
         if key in payload:
-            total = payload[key]
+            raw = payload[key]
+            try:
+                total = int(raw)
+            except (TypeError, ValueError):
+                total = None
             break
 
     return results, total
@@ -147,10 +151,12 @@ async def fetch_orders(
                 # exactly what Odoo returned and why no records came back.
                 raw_body = response.text[:2000]
                 logger.warning(
-                    "Odoo returned zero results for date range %s – %s. "
+                    "Odoo returned zero results for date range %s – %s "
+                    "(reported total=%s). "
                     "Request URL: %s | Response (first 2000 chars): %s",
                     _format_date(start_date),
                     _format_date(end_date),
+                    total,
                     request.url,
                     raw_body,
                 )
@@ -159,8 +165,6 @@ async def fetch_orders(
 
             offset += len(page_results)
             if not page_results:
-                break
-            if total is not None and offset >= total:
                 break
             if len(page_results) < limit:
                 break
