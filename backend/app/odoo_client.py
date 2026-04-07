@@ -19,11 +19,11 @@ def _extract_results(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]
     """Extract the results list and total count from an Odoo API response.
 
     Handles multiple common response shapes:
-    - {"results": [...], "total": N}          – original custom REST format
-    - {"records": [...], "length": N}          – Odoo 17+ standard REST
-    - {"result": {"results": [...], "total": N}} – JSON-RPC wrapper with object
-    - {"result": [...]}                         – JSON-RPC wrapper with direct array
-    - [...]                                     – direct array response
+    - {"results": [...], "total": N}            - original custom REST format
+    - {"records": [...], "length": N}            - Odoo 17+ standard REST
+    - {"result": {"results": [...], "total": N}} - JSON-RPC wrapper with object
+    - {"result": [...]}                          - JSON-RPC wrapper with direct array
+    - [...]                                      - direct array response
     """
     # Direct array response
     if isinstance(payload, list):
@@ -41,7 +41,8 @@ def _extract_results(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]
     if "error" in payload:
         error = payload["error"]
         if isinstance(error, dict):
-            msg = error.get("message") or error.get("data", {}).get("message") or str(error)
+            data = error.get("data") or {}
+            msg = error.get("message") or data.get("message") or str(error)
         else:
             msg = str(error)
         raise HTTPException(
@@ -49,17 +50,20 @@ def _extract_results(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]
             detail=f"Odoo API returned an error: {msg}",
         )
 
-    results = (
-        payload.get("results")
-        or payload.get("records")
-        or payload.get("data")
-        or []
-    )
-    total = (
-        payload.get("total")
-        or payload.get("length")
-        or payload.get("count")
-    )
+    # Use explicit key presence checks so that an empty list ([]) or zero count
+    # stored under the first key is not mistakenly skipped.
+    results: List[Dict[str, Any]] = []
+    for key in ("results", "records", "data"):
+        if key in payload:
+            results = payload[key] or []
+            break
+
+    total: Optional[int] = None
+    for key in ("total", "length", "count"):
+        if key in payload:
+            total = payload[key]
+            break
+
     return results, total
 
 

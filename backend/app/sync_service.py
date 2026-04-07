@@ -21,10 +21,15 @@ def _parse_date(date_str: str) -> datetime:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Order missing date_order field",
         )
-    # Normalise to "YYYY-MM-DD HH:MM:SS" before parsing so that both the
+    # Normalize to "YYYY-MM-DD HH:MM:SS" before parsing so that both the
     # classic Odoo format ("2026-04-07 08:47:21") and ISO-8601 variants
     # ("2026-04-07T08:47:21", "2026-04-07T08:47:21.000Z", "...+03:00")
     # are all handled without error.
+    if len(date_str) < 19:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Cannot parse date from Odoo (too short): {date_str!r}",
+        )
     normalized = date_str[:19].replace("T", " ")
     try:
         return datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S")
