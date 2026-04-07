@@ -1,6 +1,9 @@
 """Module-level fetch progress tracking (single-sync model)."""
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 _state: dict = {
     "status": "idle",   # idle | fetching | storing | done | error
@@ -21,7 +24,22 @@ def start_fetch(total: Optional[int] = None) -> None:
 
 
 def update_fetched(count: int) -> None:
-    """Update the running count of records fetched so far."""
+    """Update the running count of records fetched so far.
+
+    If the API-reported total is known, the counter is capped at that value so
+    the progress display never shows a fetched count that exceeds the total
+    (which can happen when the server ignores the requested page-size limit and
+    returns larger pages than expected, causing parallel pages to overlap before
+    deduplication).
+    """
+    total = _state.get("total")
+    if total is not None and count > total:
+        logger.debug(
+            "Capped fetched count from %d to total %d (API page size exceeds reported total).",
+            count,
+            total,
+        )
+        count = total
     _state["fetched"] = count
 
 
