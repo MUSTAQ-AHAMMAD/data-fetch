@@ -44,9 +44,17 @@ def _ensure_thick_mode(client_lib: str) -> None:
 
 
 def _auth_mode(mode_name: str) -> int:
-    if mode_name and mode_name.upper() == "SYSDBA":
-        return oracledb.AUTH_MODE_SYSDBA
+    if mode_name:
+        upper = mode_name.upper()
+        if upper == "SYSDBA":
+            return oracledb.AUTH_MODE_SYSDBA
+        if upper == "SYSOPER":
+            return oracledb.AUTH_MODE_SYSOPER
     return oracledb.AUTH_MODE_DEFAULT
+
+
+def _is_privileged_mode(mode_name: str) -> bool:
+    return bool(mode_name) and mode_name.upper() in ("SYSDBA", "SYSOPER")
 
 
 def _pool_key(settings: Settings) -> str:
@@ -80,7 +88,10 @@ async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
         user=settings.oracle_user,
         password=settings.oracle_password,
         dsn=dsn,
-        min=1,
+        # min=0 avoids eager connection at pool creation time; connections are
+        # established on first acquire instead, preventing startup failures when
+        # the DB is temporarily unreachable.
+        min=0,
         max=4,
         increment=1,
         homogeneous=True,
@@ -106,12 +117,36 @@ async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
 
 @asynccontextmanager
 async def get_connection(settings: Settings) -> oracledb.Connection:
-    pool = await get_pool(settings)
-    conn = await asyncio.to_thread(pool.acquire)
-    try:
-        yield conn
-    finally:
-        await asyncio.to_thread(pool.release, conn)
+    # SYSDBA / SYSOPER connections do not work reliably through a session pool in
+    # Thick mode (the auth privilege is not always propagated to pooled sessions).
+    # Use a direct (non-pooled) connection for privileged modes instead.
+    if _is_privileged_mode(settings.oracle_mode):
+        _ensure_thick_mode(settings.oracle_client_lib)
+        dsn = f"{settings.oracle_host}:{settings.oracle_port}/{settings.oracle_service}"
+        logger.debug(
+            "Creating direct Oracle connection (privileged mode=%s): dsn=%s user=%s",
+            settings.oracle_mode,
+            dsn,
+            settings.oracle_user,
+        )
+        conn = await asyncio.to_thread(
+            oracledb.connect,
+            user=settings.oracle_user,
+            password=settings.oracle_password,
+            dsn=dsn,
+            mode=_auth_mode(settings.oracle_mode),
+        )
+        try:
+            yield conn
+        finally:
+            await asyncio.to_thread(conn.close)
+    else:
+        pool = await get_pool(settings)
+        conn = await asyncio.to_thread(pool.acquire)
+        try:
+            yield conn
+        finally:
+            await asyncio.to_thread(pool.release, conn)
 
 
 async def test_connection(settings: Settings) -> bool:

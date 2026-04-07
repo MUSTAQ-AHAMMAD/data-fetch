@@ -102,10 +102,13 @@ async def fetch_orders(
             if company_id is not None:
                 params["company_id"] = company_id
 
-            logger.debug(
-                "Fetching Odoo orders: url=%s params=%s",
+            logger.info(
+                "Fetching Odoo orders: url=%s start_date=%s end_date=%s offset=%d limit=%d",
                 settings.odoo_api_url,
-                params,
+                _format_date(start_date),
+                _format_date(end_date),
+                offset,
+                limit,
             )
 
             try:
