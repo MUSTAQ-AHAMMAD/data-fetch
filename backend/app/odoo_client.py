@@ -105,13 +105,8 @@ async def fetch_orders(
             }
             # Use Odoo's standard domain filter to apply the order-ID floor so
             # the server receives a well-formed expression it can parse.
-            domain: List[Any] = [
-                ["date_order", ">=", _format_date(start_date)],
-                ["date_order", "<=", _format_date(end_date)],
-            ]
             if order_id_gt is not None:
-                domain.append(["id", ">", order_id_gt])
-            params["domain"] = json.dumps(domain)
+                params["domain"] = json.dumps([["id", ">", order_id_gt]])
             if pos_id is not None:
                 params["pos_id"] = pos_id
             if company_id is not None:
@@ -128,15 +123,12 @@ async def fetch_orders(
             )
 
             response = None
-            last_exc: Optional[Exception] = None
             for attempt in range(_max_retries):
                 try:
                     response = await client.send(request)
                     response.raise_for_status()
-                    last_exc = None
                     break
                 except httpx.HTTPStatusError as exc:
-                    last_exc = exc
                     if exc.response.status_code >= 500 and attempt < _max_retries - 1:
                         wait = 2 ** attempt
                         logger.warning(
@@ -154,7 +146,6 @@ async def fetch_orders(
                         detail=f"Odoo API error {exc.response.status_code}: {exc.response.text}",
                     ) from exc
                 except httpx.HTTPError as exc:
-                    last_exc = exc
                     if attempt < _max_retries - 1:
                         wait = 2 ** attempt
                         logger.warning(
@@ -170,12 +161,6 @@ async def fetch_orders(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail=f"Odoo API request failed: {exc}",
                     ) from exc
-
-            if last_exc is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Odoo API request failed after {_max_retries} attempts: {last_exc}",
-                ) from last_exc
 
             payload = response.json()
             try:
