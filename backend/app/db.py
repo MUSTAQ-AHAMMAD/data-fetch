@@ -87,12 +87,6 @@ async def get_pool(settings: Settings) -> oracledb.ConnectionPool:
         mode=_auth_mode(settings.oracle_mode),
     )
 
-    # encoding / nencoding are only valid in Thick mode; omit them for Thin
-    # mode to avoid a TypeError from python-oracledb.
-    if settings.oracle_client_lib:
-        create_pool_kwargs["encoding"] = "UTF-8"
-        create_pool_kwargs["nencoding"] = "UTF-8"
-
     try:
         pool = await asyncio.to_thread(oracledb.create_pool, **create_pool_kwargs)
         pool_cache[key] = pool
