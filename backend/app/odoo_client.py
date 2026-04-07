@@ -1,5 +1,6 @@
+import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import HTTPException, status
@@ -7,9 +8,63 @@ from fastapi import HTTPException, status
 from . import cancel as _cancel
 from .config import Settings
 
+logger = logging.getLogger(__name__)
+
 
 def _format_date(value: datetime) -> str:
     return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _extract_results(payload: Any) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+    """Extract the results list and total count from an Odoo API response.
+
+    Handles multiple common response shapes:
+    - {"results": [...], "total": N}            - original custom REST format
+    - {"records": [...], "length": N}            - Odoo 17+ standard REST
+    - {"result": {"results": [...], "total": N}} - JSON-RPC wrapper with object
+    - {"result": [...]}                          - JSON-RPC wrapper with direct array
+    - [...]                                      - direct array response
+    """
+    # Direct array response
+    if isinstance(payload, list):
+        return payload, len(payload)
+
+    # Unwrap JSON-RPC {"result": ...} wrapper if present (and no top-level error)
+    if "result" in payload and "error" not in payload:
+        inner = payload["result"]
+        if isinstance(inner, list):
+            return inner, len(inner)
+        if isinstance(inner, dict):
+            payload = inner
+
+    # Detect and surface API-level error messages
+    if "error" in payload:
+        error = payload["error"]
+        if isinstance(error, dict):
+            data = error.get("data") or {}
+            msg = error.get("message") or data.get("message") or str(error)
+        else:
+            msg = str(error)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Odoo API returned an error: {msg}",
+        )
+
+    # Use explicit key presence checks so that an empty list ([]) or zero count
+    # stored under the first key is not mistakenly skipped.
+    results: List[Dict[str, Any]] = []
+    for key in ("results", "records", "data"):
+        if key in payload:
+            results = payload[key] or []
+            break
+
+    total: Optional[int] = None
+    for key in ("total", "length", "count"):
+        if key in payload:
+            total = payload[key]
+            break
+
+    return results, total
 
 
 async def fetch_orders(
@@ -47,13 +102,19 @@ async def fetch_orders(
             if company_id is not None:
                 params["company_id"] = company_id
 
+            logger.debug(
+                "Fetching Odoo orders: url=%s params=%s",
+                settings.odoo_api_url,
+                params,
+            )
+
             try:
                 response = await client.get(settings.odoo_api_url, headers=headers, params=params)
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Odoo API error: {exc.response.text}",
+                    detail=f"Odoo API error {exc.response.status_code}: {exc.response.text}",
                 ) from exc
             except httpx.HTTPError as exc:
                 raise HTTPException(
@@ -62,10 +123,32 @@ async def fetch_orders(
                 ) from exc
 
             payload = response.json()
-            page_results = payload.get("results") or []
+            try:
+                page_results, total = _extract_results(payload)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "Unexpected Odoo response structure. Keys: %s. Error: %s",
+                    list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Unexpected Odoo API response format: {exc}",
+                ) from exc
+
+            if not page_results and offset == 0:
+                logger.warning(
+                    "Odoo returned zero results for date range %s – %s "
+                    "(response keys: %s)",
+                    _format_date(start_date),
+                    _format_date(end_date),
+                    list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__,
+                )
+
             orders.extend(page_results)
 
-            total = payload.get("total")
             offset += len(page_results)
             if not page_results:
                 break
@@ -74,4 +157,10 @@ async def fetch_orders(
             if len(page_results) < limit:
                 break
 
+    logger.info(
+        "Odoo fetch complete: %d orders collected (%s – %s)",
+        len(orders),
+        _format_date(start_date),
+        _format_date(end_date),
+    )
     return orders
