@@ -616,3 +616,50 @@ input[type="time"]::-webkit-datetime-edit-ampm-field {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Clear-all panel (FetchPage) ─────────────────────────────────────────── */
+
+.clear-all-panel {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: rgba(255, 107, 107, 0.06);
+  border: 1px solid rgba(255, 107, 107, 0.25);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.clear-all-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.clear-all-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #ff8a7a;
+}
+
+.clear-all-desc {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.clear-all-ok {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #3dd598;
+}
+
+.cta-ghost {
+  background: rgba(255, 107, 107, 0.15) !important;
+  color: #ff8a7a !important;
+  border: 1px solid rgba(255, 107, 107, 0.35) !important;
+}
+
+.cta-ghost:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.25) !important;
+  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.2) !important;
+}

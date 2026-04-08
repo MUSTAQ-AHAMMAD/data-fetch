@@ -115,6 +115,7 @@ function ClearRecordsPanel({ apiRoot }) {
   const [clearResult, setClearResult] = useState(null)
   const [clearError, setClearError] = useState(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [clearAllConfirmed, setClearAllConfirmed] = useState(false)
 
   const toggleTable = (key) => {
     setSelectedTables((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -122,6 +123,40 @@ function ClearRecordsPanel({ apiRoot }) {
   }
 
   const tables = TABLE_OPTIONS.filter((t) => selectedTables[t.key]).map((t) => t.key)
+
+  const runClear = async (body) => {
+    const res = await fetch(`${apiRoot}/local/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      let detail = text
+      try { detail = JSON.parse(text)?.detail || text } catch (_) {}
+      throw new Error(`Failed to clear records: ${detail}`)
+    }
+    return res.json()
+  }
+
+  const handleClearAll = async () => {
+    if (!clearAllConfirmed) {
+      setClearAllConfirmed(true)
+      return
+    }
+    setClearing(true)
+    setClearResult(null)
+    setClearError(null)
+    setClearAllConfirmed(false)
+    try {
+      const data = await runClear({ tables: ['sales', 'payments', 'line_items'] })
+      setClearResult(data.deleted)
+    } catch (err) {
+      setClearError(err.message)
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const handleClear = async () => {
     if (!confirmed) {
@@ -136,18 +171,7 @@ function ClearRecordsPanel({ apiRoot }) {
       const body = { tables }
       if (clearStart) body.start_date = clearStart
       if (clearEnd) body.end_date = clearEnd
-      const res = await fetch(`${apiRoot}/local/clear`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        let detail = text
-        try { detail = JSON.parse(text)?.detail || text } catch (_) {}
-        throw new Error(`Failed to clear records: ${detail}`)
-      }
-      const data = await res.json()
+      const data = await runClear(body)
       setClearResult(data.deleted)
     } catch (err) {
       setClearError(err.message)
@@ -166,6 +190,20 @@ function ClearRecordsPanel({ apiRoot }) {
           Permanently delete rows from the local database within a date range.
           Leave dates empty to delete <strong>all</strong> records in the selected tables.
         </p>
+      </div>
+      <div className="clear-all-row">
+        <span className="clear-all-label">Quick action:</span>
+        <button
+          className={`cta cta-sm ${clearAllConfirmed ? 'cta-danger' : ''}`}
+          onClick={handleClearAll}
+          disabled={clearing}
+          style={{ marginTop: 0 }}
+        >
+          {clearAllConfirmed ? '⚠ Confirm — delete ALL data' : clearing ? 'Deleting…' : '🗑 Clear entire database'}
+        </button>
+        {clearAllConfirmed && !clearing && (
+          <span className="warn" style={{ fontSize: '0.8rem' }}>Click again to confirm. This cannot be undone.</span>
+        )}
       </div>
       <div className="clear-fields">
         <label className="field">
@@ -215,18 +253,22 @@ function ClearRecordsPanel({ apiRoot }) {
           </div>
         </div>
       )}
-      <button
-        className={`cta cta-sm ${confirmed ? 'cta-danger' : ''}`}
-        onClick={handleClear}
-        disabled={clearing || tables.length === 0}
-      >
-        {clearing ? 'Deleting…' : confirmed ? '⚠ Confirm delete' : 'Delete records'}
-      </button>
-      {confirmed && !clearing && (
-        <p className="warn" style={{ marginTop: '4px' }}>
-          Click again to confirm. This cannot be undone.
-        </p>
-      )}
+      <div className="clear-range-row">
+        <span className="clear-range-label">Or delete by date range:</span>
+        <button
+          className={`cta cta-sm ${confirmed ? 'cta-danger' : ''}`}
+          onClick={handleClear}
+          disabled={clearing || tables.length === 0}
+          style={{ marginTop: 0 }}
+        >
+          {confirmed ? '⚠ Confirm delete' : clearing ? 'Deleting…' : 'Delete records'}
+        </button>
+        {confirmed && !clearing && (
+          <span className="warn" style={{ fontSize: '0.8rem' }}>
+            Click again to confirm. This cannot be undone.
+          </span>
+        )}
+      </div>
     </div>
   )
 }
