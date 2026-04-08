@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # Maximum number of concurrent page requests sent to Odoo in parallel.
     # Raise for faster fetches on a capable server; lower to avoid rate-limiting.
     max_concurrent_pages: int = 5
+    # Safety cap on the number of extra parallel batches fetched during the
+    # continuation sweep (triggered when the API's reported total is understated).
+    # Each batch fetches up to max_concurrent_pages pages.  The sweep also stops
+    # early as soon as a partial/empty page is seen, or when a full batch returns
+    # only records that were already collected (i.e. the API is re-serving
+    # duplicates for out-of-bounds offsets).
+    max_continuation_batches: int = 20
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

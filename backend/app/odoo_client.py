@@ -287,9 +287,32 @@ async def fetch_orders(
                     offsets[-1],
                     total,
                 )
+                # Snapshot the order IDs collected so far so that each
+                # continuation batch can detect whether the API is re-serving
+                # records that we already have (a common quirk where the API
+                # returns the last page's data for any out-of-bounds offset).
+                # If an entire batch yields no new IDs we stop immediately to
+                # prevent an infinite loop.
+                seen_order_ids: set[Any] = set()
+                for _w in orders:
+                    _oid = (_w.get("order") or {}).get("order_id")
+                    if _oid is not None:
+                        seen_order_ids.add(_oid)
+
                 cont_semaphore = asyncio.Semaphore(max_concurrent)
                 cont_done = False
+                cont_batch_num = 0
+                max_cont_batches = settings.max_continuation_batches
                 while not cont_done:
+                    if cont_batch_num >= max_cont_batches:
+                        logger.warning(
+                            "Continuation sweep reached the maximum of %d batches (%d extra pages); "
+                            "stopping to prevent an infinite loop. Collected %d records so far.",
+                            max_cont_batches,
+                            max_cont_batches * max_concurrent,
+                            len(orders),
+                        )
+                        break
                     if _cancel.is_cancelled():
                         raise HTTPException(
                             status_code=status.HTTP_409_CONFLICT,
@@ -300,7 +323,9 @@ async def fetch_orders(
                         continuation_offset + i * actual_page_size for i in range(max_concurrent)
                     ]
                     logger.info(
-                        "Continuation batch: fetching offsets %s – %s",
+                        "Continuation batch %d/%d: fetching offsets %s – %s",
+                        cont_batch_num + 1,
+                        max_cont_batches,
                         batch_offsets[0],
                         batch_offsets[-1],
                     )
@@ -318,21 +343,50 @@ async def fetch_orders(
                         await asyncio.gather(*[_cont_fetch(off) for off in batch_offsets]),
                         key=lambda x: x[0],
                     )
+                    new_ids_in_batch = 0
                     for _off, batch_records in batch_pages:
                         if not batch_records:
                             cont_done = True
                             break
+                        # Track which records in this batch are genuinely new.
+                        for _rec in batch_records:
+                            _oid = (_rec.get("order") or {}).get("order_id")
+                            if _oid is not None and _oid not in seen_order_ids:
+                                seen_order_ids.add(_oid)
+                                new_ids_in_batch += 1
                         orders.extend(batch_records)
                         _progress.update_fetched(len(orders))
                         continuation_offset = _off + actual_page_size
                         if len(batch_records) < actual_page_size:
                             cont_done = True
                             break
+                    # If the batch contained only records we already had, the
+                    # API is re-serving duplicate data for out-of-bounds offsets.
+                    # Stop immediately to avoid an infinite loop.
+                    if not cont_done and new_ids_in_batch == 0:
+                        logger.warning(
+                            "Continuation batch %d returned only duplicate records "
+                            "(0 new order IDs out of %d records); "
+                            "API is re-serving existing data — stopping sweep.",
+                            cont_batch_num + 1,
+                            sum(len(recs) for _, recs in batch_pages),
+                        )
+                        cont_done = True
+                    cont_batch_num += 1
         else:
             # ── Sequential fallback when total is unknown ──
             # Start from actual_page_size (not limit) so we continue from
             # exactly where page 0 left off, even when the API returned more
             # records per page than the requested limit.
+            # Track seen IDs to detect APIs that re-serve the same last page
+            # for out-of-bounds offsets (which would otherwise cause an
+            # infinite loop).
+            seq_seen_ids: set[Any] = set()
+            for _w in orders:
+                _oid = (_w.get("order") or {}).get("order_id")
+                if _oid is not None:
+                    seq_seen_ids.add(_oid)
+
             offset = actual_page_size
             while True:
                 if _cancel.is_cancelled():
@@ -344,6 +398,20 @@ async def fetch_orders(
                     client, settings.odoo_api_url, headers, base_params, offset, limit
                 )
                 if not page_results:
+                    break
+                new_seq_ids = 0
+                for _rec in page_results:
+                    _oid = (_rec.get("order") or {}).get("order_id")
+                    if _oid is not None and _oid not in seq_seen_ids:
+                        seq_seen_ids.add(_oid)
+                        new_seq_ids += 1
+                if new_seq_ids == 0:
+                    logger.warning(
+                        "Sequential fetch at offset %d returned %d records but all were already seen; "
+                        "API is re-serving existing data — stopping.",
+                        offset,
+                        len(page_results),
+                    )
                     break
                 orders.extend(page_results)
                 _progress.update_fetched(len(orders))
