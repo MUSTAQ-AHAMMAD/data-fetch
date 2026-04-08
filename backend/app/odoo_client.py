@@ -185,6 +185,13 @@ async def fetch_orders(
         base_params["pos_id"] = pos_id
     if company_id is not None:
         base_params["company_id"] = company_id
+    # Apply the order-ID floor so the API only returns orders above the given
+    # threshold.  Use the explicit per-request value when provided; fall back to
+    # the configured default minimum order ID so that stale/already-synced
+    # orders are never re-fetched unless the caller explicitly asks for them.
+    effective_order_id_gt = order_id_gt if order_id_gt is not None else settings.odoo_order_min_id
+    if effective_order_id_gt:
+        base_params["order_id_gt"] = effective_order_id_gt
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
         # ── Page 0: always fetched first so we can read the total count ──
@@ -214,7 +221,10 @@ async def fetch_orders(
         actual_page_size = len(page0_results)
 
         # ── Early exit: everything fit in the first page ──
-        if actual_page_size < limit or (total is not None and actual_page_size == total):
+        # Use >= so that an API returning more records than it reports in `total`
+        # (actual_page_size > total) is also caught and we don't wastefully
+        # fall into the sequential fallback below.
+        if actual_page_size < limit or (total is not None and actual_page_size >= total):
             logger.info(
                 "Odoo fetch complete (single page): %d orders (%s – %s)",
                 len(orders),
@@ -320,7 +330,10 @@ async def fetch_orders(
                             break
         else:
             # ── Sequential fallback when total is unknown ──
-            offset = limit
+            # Start from actual_page_size (not limit) so we continue from
+            # exactly where page 0 left off, even when the API returned more
+            # records per page than the requested limit.
+            offset = actual_page_size
             while True:
                 if _cancel.is_cancelled():
                     raise HTTPException(
