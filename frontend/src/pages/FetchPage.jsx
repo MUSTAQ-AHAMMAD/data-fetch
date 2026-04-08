@@ -139,6 +139,77 @@ function FetchProgressBar({ progress, elapsedSeconds }) {
   )
 }
 
+const ALL_TABLES = ['sales', 'payments', 'line_items']
+
+function ClearAllPanel({ apiRoot }) {
+  const [clearing, setClearing] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+  const [clearResult, setClearResult] = useState(null)
+  const [clearError, setClearError] = useState(null)
+
+  const handleClearAll = async () => {
+    if (!confirmed) {
+      setConfirmed(true)
+      return
+    }
+    setClearing(true)
+    setClearResult(null)
+    setClearError(null)
+    setConfirmed(false)
+    try {
+      const res = await fetch(`${apiRoot}/local/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables: ALL_TABLES }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        let detail = text
+        try { detail = JSON.parse(text)?.detail || text } catch (_) {}
+        throw new Error(`Failed to clear database: ${detail}`)
+      }
+      const data = await res.json()
+      const total = Object.values(data.deleted).reduce((a, b) => a + b, 0)
+      setClearResult(total)
+    } catch (err) {
+      setClearError(err.message)
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  return (
+    <div className="clear-all-panel">
+      <div className="clear-all-head">
+        <span className="clear-all-title">🗑 Clear entire database</span>
+        <span className="clear-all-desc">
+          Wipe all sales, payments, and line item records from the local database before fetching to get a clean picture.
+        </span>
+      </div>
+      {clearError && <p className="warn" style={{ margin: 0 }}>{clearError}</p>}
+      {clearResult != null && (
+        <p className="clear-all-ok">
+          ✓ Cleared — {clearResult} row{clearResult !== 1 ? 's' : ''} deleted from all tables.
+        </p>
+      )}
+      <button
+        type="button"
+        className={`cta cta-sm${confirmed ? ' cta-danger' : ' cta-ghost'}`}
+        onClick={handleClearAll}
+        disabled={clearing}
+        style={{ marginTop: 0, alignSelf: 'flex-start' }}
+      >
+        {clearing ? 'Clearing…' : confirmed ? '⚠ Confirm — delete all data' : 'Clear all data'}
+      </button>
+      {confirmed && !clearing && (
+        <p className="warn" style={{ margin: 0, fontSize: '0.8rem' }}>
+          Click again to confirm. This cannot be undone.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function FetchPage() {
   const [startDate, setStartDate] = useState(() => localDate(-3))
   const [startTime, setStartTime] = useState('00:00:00')
@@ -457,6 +528,7 @@ export default function FetchPage() {
             <h2>Result</h2>
             <p>Rows stored in local database. Use the Push page to send to Oracle.</p>
           </div>
+          <ClearAllPanel apiRoot={apiRoot} />
           {summary ? (
             <>
               <div className="integrity">
