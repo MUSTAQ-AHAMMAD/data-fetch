@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -243,191 +242,65 @@ async def fetch_orders(
             )
             return orders
 
-        # ── Determine remaining pages ──
-        if total is not None and total > actual_page_size:
-            # We know exactly how many more pages we need.
-            # Use actual_page_size (not the requested limit) so offsets align
-            # with the real page boundaries the API uses.
-            remaining_pages = math.ceil((total - actual_page_size) / actual_page_size)
-            offsets = [actual_page_size + i * actual_page_size for i in range(remaining_pages)]
-        else:
-            # total unknown — fall back to sequential pagination (old behaviour).
-            offsets = None
+        # ── Cursor-based sequential pagination ───────────────────────────────
+        # The API does not reliably support offset-based pagination; requesting
+        # offset=N often returns the same first page for any N.  Instead we
+        # advance the `order_id_gt` cursor to the maximum order_id seen so far
+        # and always request offset=0.  Because orders are returned with
+        # `order=id asc`, the last record on every page has the highest id,
+        # making it the correct cursor for the next page.
+        cursor_params = {**base_params}
 
-        if offsets is not None:
-            # ── Parallel fetch with semaphore to cap concurrent requests ──
-            semaphore = asyncio.Semaphore(max_concurrent)
-            fetched_lock = asyncio.Lock()
-            # Shared counter tracked independently so parallel tasks don't race
-            # on reading/writing the not-yet-extended `orders` list.
-            parallel_fetched = [len(orders)]  # starts with page-0 count
+        # Seed the cursor from page 0 (already in orders).  We track it
+        # incrementally so we never re-scan the whole list on each iteration.
+        cursor_order_id = None
+        for wrapper in reversed(page0_results):
+            oid = (wrapper.get("order") or {}).get("order_id")
+            if oid is not None:
+                cursor_order_id = oid
+                break
 
-            async def _guarded_fetch(offset: int) -> Tuple[int, List[Dict[str, Any]]]:
-                async with semaphore:
-                    results, _ = await _fetch_page(
-                        client, settings.odoo_api_url, headers, base_params, offset, limit
-                    )
-                    async with fetched_lock:
-                        parallel_fetched[0] += len(results)
-                        _progress.update_fetched(parallel_fetched[0])
-                    return offset, results
-
-            tasks = [_guarded_fetch(off) for off in offsets]
-            pages = await asyncio.gather(*tasks)
-
-            # asyncio.gather preserves task order, which mirrors offsets order.
-            last_page_size = 0
-            for _offset, page_records in pages:
-                orders.extend(page_records)
-                last_page_size = len(page_records)
-
-            # ── Continuation sweep ────────────────────────────────────────────
-            # If the API's reported `total` was stale/understated, the last
-            # parallel page may be full (== actual_page_size), meaning there are
-            # additional records beyond the calculated offsets.  We continue
-            # fetching in parallel batches (same concurrency cap as the main
-            # phase) until we see a partial or empty page, guaranteeing 100 %
-            # coverage regardless of total accuracy.
-            if last_page_size == actual_page_size:
-                continuation_offset = offsets[-1] + actual_page_size
-                logger.warning(
-                    "Last parallel page was full (%d records at offset %d). "
-                    "API total=%s may be understated — continuing in parallel batches to collect remaining records.",
-                    actual_page_size,
-                    offsets[-1],
-                    total,
+        while cursor_order_id is not None:
+            if _cancel.is_cancelled():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Sync cancelled during order fetch.",
                 )
-                # Snapshot the order IDs collected so far so that each
-                # continuation batch can detect whether the API is re-serving
-                # records that we already have (a common quirk where the API
-                # returns the last page's data for any out-of-bounds offset).
-                # If an entire batch yields no new IDs we stop immediately to
-                # prevent an infinite loop.
-                seen_order_ids: set[Any] = set()
-                for _w in orders:
-                    _oid = (_w.get("order") or {}).get("order_id")
-                    if _oid is not None:
-                        seen_order_ids.add(_oid)
 
-                cont_semaphore = asyncio.Semaphore(max_concurrent)
-                cont_done = False
-                cont_batch_num = 0
-                max_cont_batches = settings.max_continuation_batches
-                while not cont_done:
-                    if cont_batch_num >= max_cont_batches:
-                        logger.warning(
-                            "Continuation sweep reached the maximum of %d batches (%d extra pages); "
-                            "stopping to prevent an infinite loop. Collected %d records so far.",
-                            max_cont_batches,
-                            max_cont_batches * max_concurrent,
-                            len(orders),
-                        )
-                        break
-                    if _cancel.is_cancelled():
-                        raise HTTPException(
-                            status_code=status.HTTP_409_CONFLICT,
-                            detail="Sync cancelled during order fetch.",
-                        )
-                    # Probe up to max_concurrent pages ahead in parallel.
-                    batch_offsets = [
-                        continuation_offset + i * actual_page_size for i in range(max_concurrent)
-                    ]
-                    logger.info(
-                        "Continuation batch %d/%d: fetching offsets %s – %s",
-                        cont_batch_num + 1,
-                        max_cont_batches,
-                        batch_offsets[0],
-                        batch_offsets[-1],
-                    )
+            cursor_params["order_id_gt"] = cursor_order_id
+            logger.info(
+                "Cursor-based fetch: order_id_gt=%s, collected=%d so far",
+                cursor_order_id,
+                len(orders),
+            )
 
-                    async def _cont_fetch(off: int) -> Tuple[int, List[Dict[str, Any]]]:
-                        async with cont_semaphore:
-                            results, _ = await _fetch_page(
-                                client, settings.odoo_api_url, headers, base_params, off, limit
-                            )
-                            return off, results
+            page_results, _ = await _fetch_page(
+                client, settings.odoo_api_url, headers, cursor_params,
+                offset=0, limit=limit,
+            )
 
-                    # asyncio.gather preserves task order, but sort explicitly so
-                    # records are appended in ascending offset order regardless.
-                    batch_pages = sorted(
-                        await asyncio.gather(*[_cont_fetch(off) for off in batch_offsets]),
-                        key=lambda x: x[0],
-                    )
-                    new_ids_in_batch = 0
-                    for _off, batch_records in batch_pages:
-                        if not batch_records:
-                            cont_done = True
-                            break
-                        # Track which records in this batch are genuinely new.
-                        for _rec in batch_records:
-                            _oid = (_rec.get("order") or {}).get("order_id")
-                            if _oid is not None and _oid not in seen_order_ids:
-                                seen_order_ids.add(_oid)
-                                new_ids_in_batch += 1
-                        orders.extend(batch_records)
-                        _progress.update_fetched(len(orders))
-                        continuation_offset = _off + actual_page_size
-                        if len(batch_records) < actual_page_size:
-                            cont_done = True
-                            break
-                    # If the batch contained only records we already had, the
-                    # API is re-serving duplicate data for out-of-bounds offsets.
-                    # Stop immediately to avoid an infinite loop.
-                    if not cont_done and new_ids_in_batch == 0:
-                        logger.warning(
-                            "Continuation batch %d returned only duplicate records "
-                            "(0 new order IDs out of %d records); "
-                            "API is re-serving existing data — stopping sweep.",
-                            cont_batch_num + 1,
-                            sum(len(recs) for _, recs in batch_pages),
-                        )
-                        cont_done = True
-                    cont_batch_num += 1
-        else:
-            # ── Sequential fallback when total is unknown ──
-            # Start from actual_page_size (not limit) so we continue from
-            # exactly where page 0 left off, even when the API returned more
-            # records per page than the requested limit.
-            # Track seen IDs to detect APIs that re-serve the same last page
-            # for out-of-bounds offsets (which would otherwise cause an
-            # infinite loop).
-            seq_seen_ids: set[Any] = set()
-            for _w in orders:
-                _oid = (_w.get("order") or {}).get("order_id")
-                if _oid is not None:
-                    seq_seen_ids.add(_oid)
+            if not page_results:
+                break
 
-            offset = actual_page_size
-            while True:
-                if _cancel.is_cancelled():
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail="Sync cancelled during order fetch.",
-                    )
-                page_results, _ = await _fetch_page(
-                    client, settings.odoo_api_url, headers, base_params, offset, limit
-                )
-                if not page_results:
+            # Advance cursor to the last (highest) order_id on this page.
+            for wrapper in reversed(page_results):
+                oid = (wrapper.get("order") or {}).get("order_id")
+                if oid is not None:
+                    cursor_order_id = oid
                     break
-                new_seq_ids = 0
-                for _rec in page_results:
-                    _oid = (_rec.get("order") or {}).get("order_id")
-                    if _oid is not None and _oid not in seq_seen_ids:
-                        seq_seen_ids.add(_oid)
-                        new_seq_ids += 1
-                if new_seq_ids == 0:
-                    logger.warning(
-                        "Sequential fetch at offset %d returned %d records but all were already seen; "
-                        "API is re-serving existing data — stopping.",
-                        offset,
-                        len(page_results),
-                    )
-                    break
-                orders.extend(page_results)
-                _progress.update_fetched(len(orders))
-                offset += len(page_results)
-                if len(page_results) < limit:
-                    break
+
+            orders.extend(page_results)
+            _progress.update_fetched(len(orders))
+
+            if len(page_results) < limit:
+                break
+
+        if cursor_order_id is None:
+            logger.warning(
+                "Cannot determine pagination cursor (no order_id found in page 0); "
+                "only the first page of %d records will be stored.",
+                len(orders),
+            )
 
     # ── Deduplicate by order_id ──────────────────────────────────────────────
     # Offset-based parallel pagination can yield duplicate records when the
