@@ -502,6 +502,115 @@ input[type="time"]::-webkit-datetime-edit-ampm-field {
   color: #8ab4f8;
 }
 
+/* ── DB Insert Progress ───────────────────────────────────────────────────── */
+
+.db-insert-progress {
+  border-top: 1px solid var(--panel-stroke);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.db-insert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.db-insert-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.db-insert-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: #3dd598;
+}
+
+.db-insert-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.db-insert-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.db-table-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-stroke);
+  font-size: 13px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.db-table-row.db-table-active {
+  border-color: rgba(255, 183, 3, 0.45);
+  background: rgba(255, 183, 3, 0.07);
+}
+
+.db-table-row.db-table-done {
+  border-color: rgba(61, 213, 152, 0.35);
+  background: rgba(61, 213, 152, 0.05);
+}
+
+.db-table-row.db-table-pending {
+  opacity: 0.5;
+}
+
+.db-table-dot {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.db-table-row.db-table-active .db-table-dot {
+  color: #ffb703;
+  animation: spin 1s linear infinite;
+}
+
+.db-table-row.db-table-done .db-table-dot {
+  color: #3dd598;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.db-table-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.db-table-status {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.db-table-row.db-table-active .db-table-status {
+  color: #ffb703;
+  font-weight: 600;
+}
+
+.db-table-row.db-table-done .db-table-status {
+  color: #3dd598;
+  font-weight: 600;
+}
+
 /* ── Elapsed timer badge ──────────────────────────────────────────────────── */
 
 .elapsed-badge {

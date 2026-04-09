@@ -150,10 +150,14 @@ class PushSummary(BaseModel):
 
 
 class SyncProgress(BaseModel):
-    status: str           # idle | fetching | storing | done | error
+    status: str                          # idle | fetching | storing | done | error
     fetched: int
-    total: Optional[int]  # None if not yet known
+    total: Optional[int]                 # None if not yet known
     error: Optional[str]
+    # DB insert progress (populated during 'storing' phase)
+    store_total: Optional[int] = None    # total rows to insert across all tables
+    store_completed: int = 0             # rows inserted so far
+    store_current_table: Optional[str] = None  # 'sales' | 'payments' | 'line_items' | None
 
 
 class ClearRequest(BaseModel):

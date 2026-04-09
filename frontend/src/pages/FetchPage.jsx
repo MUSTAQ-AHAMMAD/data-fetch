@@ -74,6 +74,75 @@ const renderTableReport = (title, report) => {
   )
 }
 
+const TABLE_LABELS = { sales: 'Sales', payments: 'Payments', line_items: 'Line Items' }
+const TABLE_ORDER = ['sales', 'payments', 'line_items']
+
+function DbInsertProgress({ progress }) {
+  const { store_total, store_completed, store_current_table, status } = progress
+  if (store_total == null) return null
+
+  const storePct = store_total > 0 ? Math.min(100, Math.round((store_completed / store_total) * 100)) : 0
+  const storeRemaining = Math.max(0, store_total - store_completed)
+  const isDone = status === 'done'
+
+  // Determine per-table state based on which table is currently active.
+  // Guard against unexpected table names from the backend by only using known values.
+  const knownTable = TABLE_ORDER.includes(store_current_table) ? store_current_table : null
+  const currentIdx = knownTable ? TABLE_ORDER.indexOf(knownTable) : (isDone ? TABLE_ORDER.length : -1)
+
+  return (
+    <div className="db-insert-progress">
+      <div className="db-insert-header">
+        <span className="db-insert-title">
+          {isDone ? '✓ Database insert complete' : `💾 Inserting into database…`}
+        </span>
+        <span className="db-insert-pct">{storePct}%</span>
+      </div>
+
+      <div className="fetch-progress-bar-track" style={{ marginBottom: '10px' }}>
+        <div
+          className={`fetch-progress-bar-fill ${isDone ? 'fill-done' : ''}`}
+          style={{ width: `${storePct}%` }}
+        />
+      </div>
+
+      <div className="db-insert-stats">
+        <div className="fp-stat">
+          <span className="fp-stat-label">Total records</span>
+          <span className="fp-stat-value">{store_total.toLocaleString()}</span>
+        </div>
+        <div className="fp-stat">
+          <span className="fp-stat-label">Completed</span>
+          <span className="fp-stat-value fp-fetched">{store_completed.toLocaleString()}</span>
+        </div>
+        <div className="fp-stat">
+          <span className="fp-stat-label">Remaining</span>
+          <span className="fp-stat-value fp-pending">{storeRemaining.toLocaleString()}</span>
+        </div>
+      </div>
+
+      <div className="db-insert-tables">
+        {TABLE_ORDER.map((key, idx) => {
+          const isActive = key === knownTable
+          const isDoneTable = idx < currentIdx
+          const isPending = idx > currentIdx
+          return (
+            <div key={key} className={`db-table-row ${isActive ? 'db-table-active' : isDoneTable ? 'db-table-done' : 'db-table-pending'}`}>
+              <span className="db-table-dot">
+                {isDoneTable ? '✓' : isActive ? '⟳' : '○'}
+              </span>
+              <span className="db-table-name">{TABLE_LABELS[key]}</span>
+              <span className="db-table-status">
+                {isDoneTable ? 'Done' : isActive ? 'Inserting…' : 'Waiting'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function FetchProgressBar({ progress, elapsedSeconds }) {
   if (!progress || progress.status === 'idle') return null
 
@@ -96,7 +165,7 @@ function FetchProgressBar({ progress, elapsedSeconds }) {
           {isError
             ? '⚠ Error during fetch'
             : isStoring
-            ? '💾 Storing to local database…'
+            ? '⟳ Fetching from Odoo — complete'
             : isDone
             ? '✓ Complete'
             : '⟳ Fetching from Odoo…'}
@@ -132,6 +201,7 @@ function FetchProgressBar({ progress, elapsedSeconds }) {
           <span className="fp-stat-value fp-pending">{pending != null ? pending.toLocaleString() : '—'}</span>
         </div>
       </div>
+      {(isStoring || isDone) && <DbInsertProgress progress={progress} />}
       {isError && progress.error && (
         <p className="warn" style={{ marginTop: '6px' }}>{progress.error}</p>
       )}
