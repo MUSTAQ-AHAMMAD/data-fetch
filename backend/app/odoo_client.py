@@ -221,10 +221,20 @@ async def fetch_orders(
         actual_page_size = len(page0_results)
 
         # ── Early exit: everything fit in the first page ──
-        # Use >= so that an API returning more records than it reports in `total`
-        # (actual_page_size > total) is also caught and we don't wastefully
-        # fall into the sequential fallback below.
-        if actual_page_size < limit or (total is not None and actual_page_size >= total):
+        # When the API reports a total, trust it: only exit if we already
+        # have all (or more) records.  The partial-page heuristic
+        # (actual_page_size < limit) must NOT be used when total is known
+        # because the first page can legitimately be partial even when
+        # thousands of additional records exist on subsequent pages (e.g. the
+        # API enforces a different internal page size or the first page
+        # straddles a date-boundary resulting in fewer rows than the limit).
+        if total is not None:
+            should_stop = actual_page_size >= total
+        else:
+            # No total reported — a partial first page means we've hit the end.
+            should_stop = actual_page_size < limit
+
+        if should_stop:
             logger.info(
                 "Odoo fetch complete (single page): %d orders (%s – %s)",
                 len(orders),
