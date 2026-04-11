@@ -11,6 +11,10 @@ from .config import Settings
 
 _DB_PATH: Optional[Path] = None
 
+# Number of rows per executemany batch — keeps transactions small and lets the
+# async event loop breathe between chunks for large datasets.
+_UPSERT_CHUNK_SIZE = 500
+
 
 def _get_db_path(settings: Settings) -> Path:
     global _DB_PATH
@@ -80,6 +84,9 @@ async def init_db(settings: Settings) -> None:
     """Create tables if they do not exist."""
     path = _get_db_path(settings)
     async with aiosqlite.connect(path) as db:
+        # WAL mode allows concurrent reads while writing and improves write performance
+        # for large batches.
+        await db.execute("PRAGMA journal_mode=WAL")
         await db.executescript(_DDL)
         await db.commit()
 
@@ -115,8 +122,10 @@ async def upsert_sales(settings: Settings, rows: List[Dict[str, Any]]) -> int:
         {**r, "sale_date": r["sale_date"].isoformat() if hasattr(r["sale_date"], "isoformat") else r["sale_date"]}
         for r in rows
     ]
+    chunk_size = _UPSERT_CHUNK_SIZE
     async with aiosqlite.connect(path) as db:
-        await db.executemany(sql, serialized)
+        for i in range(0, len(serialized), chunk_size):
+            await db.executemany(sql, serialized[i:i + chunk_size])
         await db.commit()
     return len(rows)
 
@@ -154,7 +163,8 @@ async def upsert_payments(settings: Settings, rows: List[Dict[str, Any]]) -> int
         for r in rows
     ]
     async with aiosqlite.connect(path) as db:
-        await db.executemany(sql, serialized)
+        for i in range(0, len(serialized), _UPSERT_CHUNK_SIZE):
+            await db.executemany(sql, serialized[i:i + _UPSERT_CHUNK_SIZE])
         await db.commit()
     return len(rows)
 
@@ -194,7 +204,8 @@ async def upsert_line_items(settings: Settings, rows: List[Dict[str, Any]]) -> i
         for r in rows
     ]
     async with aiosqlite.connect(path) as db:
-        await db.executemany(sql, serialized)
+        for i in range(0, len(serialized), _UPSERT_CHUNK_SIZE):
+            await db.executemany(sql, serialized[i:i + _UPSERT_CHUNK_SIZE])
         await db.commit()
     return len(rows)
 
