@@ -242,25 +242,13 @@ async def fetch_orders(
             )
             return orders
 
-        # ── Cursor-based sequential pagination ───────────────────────────────
-        # The API does not reliably support offset-based pagination; requesting
-        # offset=N often returns the same first page for any N.  Instead we
-        # advance the `order_id_gt` cursor to the maximum order_id seen so far
-        # and always request offset=0.  Because orders are returned with
-        # `order=id asc`, the last record on every page has the highest id,
-        # making it the correct cursor for the next page.
-        cursor_params = {**base_params}
+        # ── Offset-based sequential pagination ───────────────────────────────
+        # Advance through pages by incrementing the offset by the number of
+        # records actually returned on the previous page.  This is the standard
+        # Odoo REST pagination mechanism and works reliably across API versions.
+        offset = actual_page_size
 
-        # Seed the cursor from page 0 (already in orders).  We track it
-        # incrementally so we never re-scan the whole list on each iteration.
-        cursor_order_id = None
-        for wrapper in reversed(page0_results):
-            oid = (wrapper.get("order") or {}).get("order_id")
-            if oid is not None:
-                cursor_order_id = oid
-                break
-
-        while cursor_order_id is not None:
+        while True:
             if _cancel.is_cancelled():
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -270,64 +258,37 @@ async def fetch_orders(
             # Early exit: we already have at least as many records as the API reported.
             if total is not None and len(orders) >= total:
                 logger.info(
-                    "Cursor pagination complete: collected %d records which meets or exceeds "
+                    "Offset pagination complete: collected %d records which meets or exceeds "
                     "API-reported total=%d. Stopping.",
                     len(orders),
                     total,
                 )
                 break
 
-            cursor_params["order_id_gt"] = cursor_order_id
             logger.info(
-                "Cursor-based fetch: order_id_gt=%s, collected=%d so far",
-                cursor_order_id,
+                "Offset-based fetch: offset=%d, collected=%d so far",
+                offset,
                 len(orders),
             )
 
             page_results, _ = await _fetch_page(
-                client, settings.odoo_api_url, headers, cursor_params,
-                offset=0, limit=limit,
+                client, settings.odoo_api_url, headers, base_params,
+                offset=offset, limit=limit,
             )
 
             if not page_results:
                 break
 
-            # Advance cursor to the last (highest) order_id on this page.
-            # If the cursor does not advance (no order_id found, or the max id on this
-            # page equals the previous cursor), there are no new records — stop immediately
-            # to prevent an infinite loop.
-            new_cursor = None
-            for wrapper in reversed(page_results):
-                oid = (wrapper.get("order") or {}).get("order_id")
-                if oid is not None:
-                    new_cursor = oid
-                    break
-
-            if new_cursor is None or new_cursor == cursor_order_id:
-                logger.warning(
-                    "Cursor did not advance (prev=%s, new=%s); stopping pagination to prevent "
-                    "infinite loop. Collected %d records so far.",
-                    cursor_order_id,
-                    new_cursor,
-                    len(orders),
-                )
-                orders.extend(page_results)
-                _progress.update_fetched(len(orders))
-                break
-
-            cursor_order_id = new_cursor
             orders.extend(page_results)
             _progress.update_fetched(len(orders))
+            offset += len(page_results)
 
-            if len(page_results) < limit:
+            # A partial page means we've reached the last page of results.
+            # Compare against actual_page_size (the size returned on page 0)
+            # rather than the requested limit, because some APIs enforce a
+            # minimum page size larger than the requested limit.
+            if len(page_results) < actual_page_size:
                 break
-
-        if cursor_order_id is None:
-            logger.warning(
-                "Cannot determine pagination cursor (no order_id found in page 0); "
-                "only the first page of %d records will be stored.",
-                len(orders),
-            )
 
     # ── Deduplicate by order_id ──────────────────────────────────────────────
     # Offset-based parallel pagination can yield duplicate records when the
