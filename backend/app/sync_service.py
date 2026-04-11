@@ -212,10 +212,23 @@ async def _write_to_local(
     payment_rows = _build_payment_rows(orders, settings)
     line_rows = _build_line_rows(orders, settings)
 
+    store_total = len(sales_rows) + len(payment_rows) + len(line_rows)
+    _progress.start_storing(store_total=store_total)
+
     await init_db(settings)
+
+    _progress.update_store_table("sales")
     sales_count = await upsert_sales(settings, sales_rows)
+    _progress.update_store_completed(sales_count)
+
+    _progress.update_store_table("payments")
     payment_count = await upsert_payments(settings, payment_rows)
+    _progress.update_store_completed(sales_count + payment_count)
+
+    _progress.update_store_table("line_items")
     line_count = await upsert_line_items(settings, line_rows)
+    _progress.update_store_completed(sales_count + payment_count + line_count)
+    _progress.update_store_table(None)
 
     empty_report = lambda attempted, upserted: TableSyncReport(
         attempted=attempted,
@@ -286,7 +299,6 @@ async def sync_orders(
             detail="Sync cancelled before writing to local database.",
         )
 
-    _progress.start_storing()
     try:
         sales_report, payments_report, lines_report = await _write_to_local(settings, orders)
     except Exception as exc:
