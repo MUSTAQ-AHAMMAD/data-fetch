@@ -267,6 +267,16 @@ async def fetch_orders(
                     detail="Sync cancelled during order fetch.",
                 )
 
+            # Early exit: we already have at least as many records as the API reported.
+            if total is not None and len(orders) >= total:
+                logger.info(
+                    "Cursor pagination complete: collected %d records which meets or exceeds "
+                    "API-reported total=%d. Stopping.",
+                    len(orders),
+                    total,
+                )
+                break
+
             cursor_params["order_id_gt"] = cursor_order_id
             logger.info(
                 "Cursor-based fetch: order_id_gt=%s, collected=%d so far",
@@ -283,12 +293,29 @@ async def fetch_orders(
                 break
 
             # Advance cursor to the last (highest) order_id on this page.
+            # If the cursor does not advance (no order_id found, or the max id on this
+            # page equals the previous cursor), there are no new records — stop immediately
+            # to prevent an infinite loop.
+            new_cursor = None
             for wrapper in reversed(page_results):
                 oid = (wrapper.get("order") or {}).get("order_id")
                 if oid is not None:
-                    cursor_order_id = oid
+                    new_cursor = oid
                     break
 
+            if new_cursor is None or new_cursor == cursor_order_id:
+                logger.warning(
+                    "Cursor did not advance (prev=%s, new=%s); stopping pagination to prevent "
+                    "infinite loop. Collected %d records so far.",
+                    cursor_order_id,
+                    new_cursor,
+                    len(orders),
+                )
+                orders.extend(page_results)
+                _progress.update_fetched(len(orders))
+                break
+
+            cursor_order_id = new_cursor
             orders.extend(page_results)
             _progress.update_fetched(len(orders))
 
