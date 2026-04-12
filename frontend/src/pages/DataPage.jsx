@@ -9,7 +9,7 @@ const TABS = [
   { key: 'line_items', label: 'Line Items', endpoint: '/local/line_items' },
 ]
 
-const PAGE_SIZE = 100
+const PAGE_SIZE = 500
 
 function FilterBar({ filters, onChange, onSearch, loading }) {
   return (
