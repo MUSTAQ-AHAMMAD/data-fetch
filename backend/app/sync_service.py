@@ -105,7 +105,7 @@ def _build_sales_rows(
                 "row_id": int(order["order_id"]),
                 "invoice_number": order.get("name", ""),
                 "outlet_name": order.get("pos_name", ""),
-                "register_name": order.get("pos_name", ""),
+                "register_name": order.get("branch_name", ""),
                 "sale_date": sale_date,
                 "total_price": total_paid - total_tax,
                 "total_tax": total_tax,
@@ -140,7 +140,7 @@ def _build_payment_rows(
                     "row_id": int(payment["id"]),
                     "invoice_number": invoice_number,
                     "outlet_name": outlet,
-                    "register_name": outlet,
+                    "register_name": order.get("branch_name", ""),
                     "amount": float(payment.get("amount") or 0),
                     "currency": "SAR",
                     "payment_type": payment_type,
@@ -164,7 +164,7 @@ def _build_line_rows(
         sale_date = _parse_date(order["date_order"])
         for idx, line in enumerate(lines, start=1):
             product = line.get("product_id") or ["", ""]
-            item_number = str(product[0]) if product else ""
+            item_number = line.get("product_barcode") or (str(product[0]) if product else "")
             item_name = (product[1] if len(product) > 1 else "") or "Discount Item"
             rows.append(
                 {
